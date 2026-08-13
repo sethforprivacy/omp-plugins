@@ -18,15 +18,21 @@ git clone <repo> quorum-review && cd quorum-review && ./install.sh
 ```
 
 `install.sh` is idempotent and backs up replaced files. It installs to:
-- `~/.config/opencode/skills/quorum-review/` (SKILL.md + scripts/)
+- `~/.omp/agent/skills/quorum-review/` (SKILL.md + scripts/) — the OMP-native skills root
 - `~/.omp/agent/agents/rev-quorum-*.md` (panel seats)
+
+A legacy OpenCode-config copy (`~/.config/opencode/skills/quorum-review/`) is no longer an
+install target; `install.sh` warns if one exists. Remove it (`rm -rf`) on any machine where it
+appeared, so the OMP-native copy is the only one.
 
 ## Key invariants — do not break
 
 1. **Seat list is DYNAMIC.** Never hardcode panel composition in SKILL.md or docs.
    Run `node scripts/panel.mjs` to see active seats (files lacking `disable: true`).
 2. **All active seats are spawned in ONE parallel task batch**, each with the SAME brief
-   (the review packet), so consensus means something.
+   (the review packet), so consensus means something. Seats are the `rev-quorum-*` agents
+   only — never substitute bundled/local agents (`scout`, `reviewer`, `task`) for them;
+   a failed seat is reported, not replaced locally.
 3. **Deterministic logic lives in scripts** — orchestration lives in SKILL.md. Scripts are
    the source of truth; keep their CLI stable (`--out`, `--json`, `--files`, `--dir`,
    `--limit`).

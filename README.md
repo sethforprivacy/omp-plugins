@@ -25,7 +25,7 @@ quorum-review/
 
 ## Requirements (target machine)
 
-- OMP (opencode-based) with the task-agent + skills features
+- OMP with the task-agent + skills features
 - `bash`, `node` ≥ 18 (for the three .mjs scripts)
 - An OpenRouter credential reachable by the target OMP install (see ⚠️ below)
 
@@ -40,7 +40,7 @@ cd quorum-review
 
 What it does (idempotent, re-run after `git pull` at any time):
 
-- `SKILL.md` + `scripts/` → `~/.config/opencode/skills/quorum-review/`
+- `SKILL.md` + `scripts/` → `~/.omp/agent/skills/quorum-review/`
 - `agents/rev-quorum-*.md` → `~/.omp/agent/agents/`
 - Backs up any file it replaces (timestamped, only if it differs)
 - Verifies installation by listing the active panel via `panel.mjs`
@@ -58,7 +58,9 @@ Uninstall: remove those two directories (backups are the `.quorum-backup-*` dirs
    individually via `-uall`; a defensive file-type guard prevents EISDIR crashes). Non-VCS
    sessions pass `--files <paths>`.
 3. **Parallel spawn** — ONE task batch, one entry per ACTIVE seat (`panel.mjs` output),
-   identical brief. Seats run concurrently.
+   identical brief. Seats run concurrently. **Seats only**: `agent:` must be the exact seat
+   name; bundled/local agents (`scout`, `reviewer`, `task`) are NOT panel members and are
+   never used as substitutes — a failed seat is reported, not replaced.
 4. **Collect** — each structured result saved to `~/.omp/quorum-review/<seat>-<ts>.json`.
    Seats that fail (route/auth policy, timeout, verdict-only) are recorded, not fabricated.
 5. **Dedupe** — `dedupe.mjs` clusters the same issue reported by different reviewers
@@ -125,6 +127,7 @@ fix on openrouter.ai/settings/privacy, not in this repo.
 | `packet.mjs` "no VCS detected" | Not a git/jj repo → pass `--files <paths>` |
 | Dedupe reports a phantom reviewer | `--dir` scanned stale files → pass explicit result files, or use `--dir` only on a pristine dir (its own `*.report.json` is excluded) |
 | Seat returned verdict but `findings: []` | Verdict-only seat; its explanation still shows in the panel report |
+| Panel report has no seat files / seat results, or reviews landed on local `scout`/`reviewer` | The orchestrator skipped the protocol and improvised with bundled agents. Re-run per SKILL.md §3: seats only. If it keeps happening, the seat agents are missing → run `install.sh` and check `~/.omp/agent/agents/` |
 | Packet stale mid-review | Regenerate the packet before spawning; reviewers read the packet at spawn time |
 
 ## Dev / tuning loop

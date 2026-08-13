@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# install.sh — install (or refresh) the quorum-review skill bundle into an OMP/opencode install.
+# install.sh — install (or refresh) the quorum-review skill bundle into an OMP install.
 #
 # Idempotent: safe to re-run after `git pull`. Existing files we manage are backed up
 # (once, timestamped) before overwrite, so local tuning is never silently clobbered.
 #
 # Defaults (standard OMP global layout):
-#   SKILL_DIR   = $XDG_CONFIG_HOME (or ~/.config)/opencode/skills/quorum-review
+#   SKILL_DIR   = $HOME/.omp/agent/skills/quorum-review   (OMP-native skills root)
 #   AGENTS_DIR  = $HOME/.omp/agent/agents
 #
 # Overrides (env) — useful for test homes and nonstandard installs:
@@ -36,7 +36,7 @@ done
 
 OMP_HOME="${OMP_HOME:-$HOME/.omp}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-SKILL_DIR="${QUORUM_SKILL_DIR:-$CONFIG_HOME/opencode/skills/$SKILL_NAME}"
+SKILL_DIR="${QUORUM_SKILL_DIR:-$OMP_HOME/agent/skills/$SKILL_NAME}"
 AGENTS_DIR="${QUORUM_AGENTS_DIR:-$OMP_HOME/agent/agents}"
 
 echo "install: target SKILL_DIR=$SKILL_DIR"
@@ -98,5 +98,11 @@ if command -v node >/dev/null 2>&1; then
   node "$SKILL_DIR/scripts/panel.mjs" || echo "install: (panel.mjs failed — check the seat files; see README)" >&2
 else
   echo "install: node not found — scripts need Node 18+ (panel/packet/dedupe will not run until it is installed)." >&2
+fi
+LEGACY_SKILL_DIR="$CONFIG_HOME/opencode/skills/$SKILL_NAME"
+if [ -e "$LEGACY_SKILL_DIR" ] && [ "$LEGACY_SKILL_DIR" != "$SKILL_DIR" ]; then
+  echo "install: WARNING — legacy copy found at $LEGACY_SKILL_DIR (pre-OMP path). It is no longer"
+  echo "install:   the install target and will be shadowed by the OMP-native copy. Remove it with:"
+  echo "install:   rm -rf \"$LEGACY_SKILL_DIR\""
 fi
 echo "install: done. In an OMP session, mention 'panel review' or 'quorum' to use the skill."

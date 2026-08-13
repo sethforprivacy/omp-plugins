@@ -19,7 +19,7 @@ one seat; its `model:` frontmatter is the model that seat runs. **Never hardcode
 or models in this skill.** Always read the live panel:
 
 ```
-node ~/.config/opencode/skills/quorum-review/scripts/panel.mjs
+node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
 ```
 
 Changing the panel = editing those files only:
@@ -46,7 +46,7 @@ any constraints the panel must respect. Pull from the user's stated goal and cur
 
 ### 2. Build the context packet
 ```
-node ~/.config/opencode/skills/quorum-review/scripts/packet.mjs \
+node ~/.omp/agent/skills/quorum-review/scripts/packet.mjs \
   --focus "<focus>" \
   --summary "<3-8 factual bullets of what was done this session: files, changes, decisions>" \
   --out /tmp/quorum-packet.md
@@ -58,8 +58,15 @@ node ~/.config/opencode/skills/quorum-review/scripts/packet.mjs \
 
 ### 3. Read the panel and spawn ALL seats in ONE parallel batch
 ```
-node ~/.config/opencode/skills/quorum-review/scripts/panel.mjs
+node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
 ```
+
+**The panel is the seat agents — nothing else.** Each `rev-quorum-*` seat is pinned to a
+remote model (`model:` in its file) so its verdict is independent of your local model. That
+independence IS the point of quorum. Bundled agents (`scout`, `reviewer`, `security-reviewer`,
+`task`, `sonic`) run on your local stack and are NOT panel members; a "panel" of them is not a
+panel at all.
+
 Then one `task` call with one entry per seat — same batch, so they run concurrently:
 
 ```
@@ -71,12 +78,26 @@ agent: <seat name from panel.mjs>
 name:  <seat name>
 ```
 
-Do NOT include disabled/no-longer-active seats. Do NOT spawn the same seat twice.
+- `agent:` MUST be the exact seat name printed by `panel.mjs` (e.g. `rev-quorum-c`). Copy it
+  verbatim; do not paraphrase or re-derive it.
+- NEVER set `agent:` to `scout`, `reviewer`, `task`, `security-reviewer`, or any other
+  non-seat agent for a panel review. If you catch yourself about to, stop — you are off
+  protocol. Read the seat list from `panel.mjs` and use those names.
+- Do NOT include disabled/no-longer-active seats. Do NOT spawn the same seat twice.
+- If a seat fails to spawn (route/auth block, timeout), record the failure per §4 and continue
+  with the working seats. Do NOT replace a failed seat with a local/bundled agent — that
+  silently shrinks the panel's independence and fakes a quorum that did not happen.
 
 ### 4. Collect results
 Save each delivered result to `~/.omp/quorum-review/<seat>-<timestamp>.json` (raw JSON as
 delivered). If a seat failed to return JSON (route error, auth/policy block, timeout, text-only
 reply), record it as a failure and save nothing for it.
+
+Verify the delivered results before saving: the result must be from the `agent` you spawned —
+the seat name. If any delivered review came from a bundled/local agent (e.g. `scout`,
+`reviewer`, `task`), it is NOT a panel seat: discard it from the panel set, re-run that seat
+via the protocol, and note the violation in the report. A panel report must contain zero
+non-seat reviewers.
 
 Some models (observed: kimi-k3, seed-1.6-flash) return a verdict + explanation but an **empty `findings` array** — or balloon the reply instead of yielding structured findings. Treat those as verdict-only seats: still save the
 result (their verdict/explanation show in the panel report), but their issues won't enter
@@ -84,7 +105,7 @@ consensus clustering. Don't silently rerun them for structure — note it and mo
 
 ### 5. Dedupe + rank by consensus
 ```
-node ~/.config/opencode/skills/quorum-review/scripts/dedupe.mjs \
+node ~/.omp/agent/skills/quorum-review/scripts/dedupe.mjs \
   ~/.omp/quorum-review/<seat>-<ts>.json ... [--out ~/.omp/quorum-review/report.md]
 ```
 Clusters the same issue reported by different reviewers; shows each finding with
@@ -106,6 +127,8 @@ verdict. These are notes for your own review loop, not a report to be filed away
 
 - **Some seats fail:** note "seat unavailable (model X blocked/failed)" and continue with the
   working remainder. Never silently run a smaller panel than the user asked for — say so.
+  And never pad the panel with local/bundled agents (`scout`, `reviewer`, etc.) — the count
+  that matters is seats that actually delivered.
 - **<2 seats succeed:** tell the user the panel can't quorum (no consensus signal), show what
   did come back, and suggest checking the model routes (they churn — see panel section).
 - **All seats fail:** stop and report the failing model IDs back to the user; the likely causes
@@ -113,7 +136,7 @@ verdict. These are notes for your own review loop, not a report to be filed away
 
 ## Tooling notes
 
-- Scripts live in `~/.config/opencode/skills/quorum-review/scripts/` — use absolute paths
+- Scripts live in `~/.omp/agent/skills/quorum-review/scripts/` — use absolute paths
   (cwd varies by project).
 - `packet.mjs --help`-style flags: `--focus`, `--summary`, `--files`, `--limit <bytes>`,
   `--out`, `--json`.
