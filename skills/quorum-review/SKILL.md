@@ -1,6 +1,7 @@
 ---
 name: quorum-review
 description: Multi-model panel (quorum) review. Run the current work past a panel of independent reviewer agents — one per model, spawned in parallel — then dedupe, rank by consensus, and bring the report back into the session as the final quality gate. Load whenever the user mentions "panel review", "quorum", "review pass", "last pass", "have the panel look at it", or asks for work to be checked by several independent models before finalizing. Designed as the last pass on work produced with local models (independent, stronger models catch what the local model misses).
+panel_prefix: rev-quorum-
 ---
 
 # Quorum (panel) review
@@ -99,7 +100,7 @@ the seat name. If any delivered review came from a bundled/local agent (e.g. `sc
 via the protocol, and note the violation in the report. A panel report must contain zero
 non-seat reviewers.
 
-Some models (observed: kimi-k3, seed-1.6-flash) return a verdict + explanation but an **empty `findings` array** — or balloon the reply instead of yielding structured findings. Treat those as verdict-only seats: still save the
+Some models (observed: seed-1.6-flash; kimi-k3 pre-2026-08-14) return a verdict + explanation but an **empty `findings` array** — or balloon the reply instead of yielding structured findings. Treat those as verdict-only seats: still save the
 result (their verdict/explanation show in the panel report), but their issues won't enter
 consensus clustering. Don't silently rerun them for structure — note it and move on.
 

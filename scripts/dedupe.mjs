@@ -193,7 +193,10 @@ for (let ri = 0; ri < reviewers.length; ri++) {
     const fileClusters = byFile.get(fileKey) || (byFile.set(fileKey, []).get(fileKey));
     let matched = null;
     for (const c of fileClusters) {
-      if (c.items.some((m) => sameIssue(item, m))) { matched = c; break; }
+      // Only cluster findings from DIFFERENT reviewers: the same reviewer's findings are
+      // distinct by construction, and merging them collapses real findings that merely
+      // share a file, a line neighborhood, and a common distinctive token.
+      if (c.items.some((m) => m.ri !== item.ri && sameIssue(item, m))) { matched = c; break; }
     }
     if (matched) {
       matched.items.push(item);

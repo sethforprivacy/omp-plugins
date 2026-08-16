@@ -4,13 +4,14 @@
 // those agent files alone — no skill edits needed.
 //
 // Usage:
-//   panel.mjs [--json]
+//   panel.mjs [--json] [--prefix <seat-prefix>]
 //   panel.mjs --agents-dir <path>   # override agent discovery dir
 //
 // Output (markdown):
 //   rev-quorum-b — venice/moonshotai/kimi-k3
-// Active = file matches rev-quorum-*.md, has frontmatter `name:` and `model:`, and is not
-// `disable: true`.
+// Active = file matches <prefix>*.md (default prefix `rev-quorum-`), has frontmatter
+// `name:` and `model:`, and is not `disable: true`. Skills that maintain their own panel
+// family pass `--prefix` (e.g. `rev-sec-` for the security-quorum panel).
 
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -20,11 +21,12 @@ function home() {
 }
 
 function parseArgs(argv) {
-  const args = { json: false, dir: join(home(), ".omp", "agent", "agents") };
+  const args = { json: false, prefix: "rev-quorum-", dir: join(home(), ".omp", "agent", "agents") };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--json") args.json = true;
     else if (a === "--agents-dir") args.dir = argv[++i];
+    else if (a === "--prefix") args.prefix = argv[++i];
     else {
       console.error(`panel: unknown arg ${a}`);
       process.exit(2);
@@ -51,7 +53,7 @@ if (!existsSync(args.dir)) {
 
 const seats = [];
 for (const f of readdirSync(args.dir).sort()) {
-  if (!/^rev-quorum-.*\.md$/.test(f)) continue;
+  if (!new RegExp(`^${args.prefix}.*\\.md$`).test(f)) continue;
   const content = readFileSync(join(args.dir, f), "utf8");
   if (isDisabled(content)) continue;
   const name = frontmatterField(content, "name") || f.replace(/\.md$/, "");

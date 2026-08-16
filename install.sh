@@ -1,15 +1,22 @@
 #!/usr/bin/env bash
-# install.sh — install (or refresh) the quorum-review skill bundle into an OMP install.
+# install.sh — install (or refresh) the OMP skills bundle into an OMP install.
+#
+# The bundle hosts multiple skills under skills/<name>/. Each skill installs to
+#   $HOME/.omp/agent/skills/<name>/            (SKILL.md + scripts/)
+# and its seat agents copy to $HOME/.omp/agent/agents/.
+# The protocol scripts in scripts/ are the SHARED source of truth; they are copied into
+# every skill's installed scripts/ dir. Skill-local scripts under skills/<name>/scripts/
+# copy on top (overriding shared names when they collide).
 #
 # Idempotent: safe to re-run after `git pull`. Existing files we manage are backed up
 # (once, timestamped) before overwrite, so local tuning is never silently clobbered.
 #
 # Defaults (standard OMP global layout):
-#   SKILL_DIR   = $HOME/.omp/agent/skills/quorum-review   (OMP-native skills root)
-#   AGENTS_DIR  = $HOME/.omp/agent/agents
+#   SKILLS_DIR   = $HOME/.omp/agent/skills
+#   AGENTS_DIR   = $HOME/.omp/agent/agents
 #
 # Overrides (env) — useful for test homes and nonstandard installs:
-#   QUORUM_SKILL_DIR=...   QUORUM_AGENTS_DIR=...   OMP_HOME=...
+#   QUORUM_AGENTS_DIR=...   OMP_HOME=...
 #
 # Usage:
 #   ./install.sh            # install; backups created for anything replaced
@@ -20,7 +27,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_NAME="quorum-review"
 
 DRY_RUN=0
 BACKUP=1
@@ -36,28 +42,49 @@ done
 
 OMP_HOME="${OMP_HOME:-$HOME/.omp}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-SKILL_DIR="${QUORUM_SKILL_DIR:-$OMP_HOME/agent/skills/$SKILL_NAME}"
+SKILLS_DIR="${QUORUM_SKILLS_DIR:-$OMP_HOME/agent/skills}"
 AGENTS_DIR="${QUORUM_AGENTS_DIR:-$OMP_HOME/agent/agents}"
 
-echo "install: target SKILL_DIR=$SKILL_DIR"
+echo "install: target SKILLS_DIR=$SKILLS_DIR"
 echo "install: target AGENTS_DIR=$AGENTS_DIR"
 
-# Sanity: bundle must look complete.
-for f in "$REPO_ROOT/SKILL.md" "$REPO_ROOT/scripts/panel.mjs" "$REPO_ROOT/scripts/packet.mjs" "$REPO_ROOT/scripts/dedupe.mjs"; do
-  [ -f "$f" ] || { echo "install: bundle incomplete (missing $f)" >&2; exit 1; }
+# Sanity: shared protocol scripts must exist.
+SHARED_SCRIPTS=("$REPO_ROOT"/scripts/*.mjs)
+[ "${#SHARED_SCRIPTS[@]}" -gt 0 ] || { echo "install: bundle incomplete (no scripts/)" >&2; exit 1; }
+
+# Discover skills: every skills/<name>/ containing a SKILL.md.
+SKILL_DIRS=()
+for d in "$REPO_ROOT"/skills/*/; do
+  [ -d "$d" ] || continue
+  [ -f "$d/SKILL.md" ] || { echo "install: skills/$(basename "$d") has no SKILL.md — fix before installing" >&2; exit 1; }
+  SKILL_DIRS+=("$d")
 done
+[ "${#SKILL_DIRS[@]}" -gt 0 ] || { echo "install: no skills/*/ found" >&2; exit 1; }
+
+# Each skill's panel seat prefix comes from its SKILL.md frontmatter (`panel_prefix:`),
+# default rev-quorum- (general review panel).
+panel_prefix() {
+  sed -n 's/^panel_prefix:[[:space:]]*//p' "$1" | head -n1
+}
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "install: DRY RUN — no changes"
-  echo "install:   would copy: SKILL.md, scripts/*.mjs -> $SKILL_DIR/"
-  mkdir -p "$AGENTS_DIR" 2>/dev/null || true
-  for f in "$REPO_ROOT"/agents/rev-quorum-*.md; do
-    echo "install:   would copy: $(basename "$f") -> $AGENTS_DIR/"
+  for d in "${SKILL_DIRS[@]}"; do
+    name="$(basename "$d")"
+    prefix="$(panel_prefix "$d/SKILL.md")"
+    echo "install:   skill $name (panel prefix: ${prefix:-rev-quorum-})"
+    echo "install:     would copy: SKILL.md + shared scripts -> $SKILLS_DIR/$name/"
+    for s in "$d"/scripts/*.mjs; do
+      [ -e "$s" ] && echo "install:     would copy: scripts/$(basename "$s") -> $SKILLS_DIR/$name/"
+    done
+    for a in "$d"/agents/*.md; do
+      [ -e "$a" ] && echo "install:     would copy: $(basename "$a") -> $AGENTS_DIR/"
+    done
   done
   exit 0
 fi
 
-mkdir -p "$SKILL_DIR/scripts" "$AGENTS_DIR"
+mkdir -p "$SKILLS_DIR" "$AGENTS_DIR"
 
 # Backup anything we replace, once per run, only if it differs from the bundle.
 backup() {
@@ -67,42 +94,60 @@ backup() {
   if cmp -s "$dst" "$2"; then return 0; fi
   local stamp bak
   stamp="$(date +%Y%m%d-%H%M%S)"
-  case "$dst" in
-    *"$SKILL_NAME/scripts/"*) bak="$SKILL_DIR/scripts/.quorum-backup-$stamp" ;;
-    *"$SKILL_NAME/"*)         bak="$SKILL_DIR/.quorum-backup-$stamp" ;;
-    *)                        bak="$OMP_HOME/quorum-backup-$stamp" ;;
-  esac
+  bak="$OMP_HOME/skills-backup-$stamp"
   mkdir -p "$bak"
   cp -p "$dst" "$bak/"
   echo "install: backed up $(basename "$dst") -> $bak/"
 }
 
-backup "$SKILL_DIR/SKILL.md" "$REPO_ROOT/SKILL.md"
-cp "$REPO_ROOT/SKILL.md" "$SKILL_DIR/SKILL.md"
+for d in "${SKILL_DIRS[@]}"; do
+  name="$(basename "$d")"
+  dest="$SKILLS_DIR/$name"
+  mkdir -p "$dest/scripts"
 
-for s in "$REPO_ROOT"/scripts/*.mjs; do
-  backup "$SKILL_DIR/scripts/$(basename "$s")" "$s"
-  cp "$s" "$SKILL_DIR/scripts/"
-done
-chmod +x "$SKILL_DIR"/scripts/*.mjs 2>/dev/null || true
+  backup "$dest/SKILL.md" "$d/SKILL.md"
+  cp "$d/SKILL.md" "$dest/SKILL.md"
 
-for a in "$REPO_ROOT"/agents/rev-quorum-*.md; do
-  f="$(basename "$a")"
-  backup "$AGENTS_DIR/$f" "$a"
-  cp "$a" "$AGENTS_DIR/$f"
+  # Shared protocol scripts, then any skill-local overrides.
+  for s in "$REPO_ROOT"/scripts/*.mjs; do
+    backup "$dest/scripts/$(basename "$s")" "$s"
+    cp "$s" "$dest/scripts/"
+  done
+  for s in "$d"/scripts/*.mjs; do
+    [ -e "$s" ] || continue
+    backup "$dest/scripts/$(basename "$s")" "$s"
+    cp "$s" "$dest/scripts/"
+  done
+  chmod +x "$dest"/scripts/*.mjs 2>/dev/null || true
+
+  for a in "$d"/agents/*.md; do
+    [ -e "$a" ] || continue
+    f="$(basename "$a")"
+    backup "$AGENTS_DIR/$f" "$a"
+    cp "$a" "$AGENTS_DIR/$f"
+  done
 done
 
 echo "install: files installed."
 if command -v node >/dev/null 2>&1; then
-  echo "install: active panel discovered at install time:"
-  node "$SKILL_DIR/scripts/panel.mjs" || echo "install: (panel.mjs failed — check the seat files; see README)" >&2
+  for d in "${SKILL_DIRS[@]}"; do
+    name="$(basename "$d")"
+    prefix="$(panel_prefix "$d/SKILL.md")"
+    echo "install: active panel ($name, prefix ${prefix:-rev-quorum-}) discovered at install time:"
+    node "$SKILLS_DIR/$name/scripts/panel.mjs" --prefix "${prefix:-rev-quorum-}" \
+      || echo "install: (panel.mjs failed for $name — check the seat files; see README)" >&2
+  done
 else
   echo "install: node not found — scripts need Node 18+ (panel/packet/dedupe will not run until it is installed)." >&2
 fi
-LEGACY_SKILL_DIR="$CONFIG_HOME/opencode/skills/$SKILL_NAME"
-if [ -e "$LEGACY_SKILL_DIR" ] && [ "$LEGACY_SKILL_DIR" != "$SKILL_DIR" ]; then
-  echo "install: WARNING — legacy copy found at $LEGACY_SKILL_DIR (pre-OMP path). It is no longer"
-  echo "install:   the install target and will be shadowed by the OMP-native copy. Remove it with:"
-  echo "install:   rm -rf \"$LEGACY_SKILL_DIR\""
-fi
-echo "install: done. In an OMP session, mention 'panel review' or 'quorum' to use the skill."
+
+for d in "${SKILL_DIRS[@]}"; do
+  name="$(basename "$d")"
+  LEGACY_SKILL_DIR="$CONFIG_HOME/opencode/skills/$name"
+  if [ -e "$LEGACY_SKILL_DIR" ]; then
+    echo "install: WARNING — legacy OpenCode-config copy found at $LEGACY_SKILL_DIR (pre-OMP path)."
+    echo "install:   It is no longer the install target and will be shadowed by the OMP-native copy. Remove it with:"
+    echo "install:   rm -rf \"$LEGACY_SKILL_DIR\""
+  fi
+done
+echo "install: done. In an OMP session, mention 'panel review'/'quorum' or 'security review' to use the skills."
