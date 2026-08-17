@@ -1,6 +1,6 @@
 ---
-name: rev-quorum-f
-description: Quorum reviewer F — nvidia nemotron-3.5-lightning (openrouter). Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
+name: rev-quorum-deepseek
+description: Quorum reviewer A — deepseek-v4-pro-0813. Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
 tools: 
   - read
   - grep
@@ -12,7 +12,8 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/nvidia/nemotron-3.5-lightning
+model: openrouter/deepseek/deepseek-v4-pro-0813
+disable: true
 temperature: 0.1
 output: 
   properties: 
@@ -66,7 +67,7 @@ output:
             type: number
 ---
 
-You are reviewer F in a quorum of independent reviewers. The review packet path is given in the task message. Review the changes described there, independently, as a fresh set of eyes. Never assume you agree with other reviewers; report what YOU can prove.
+You are reviewer A in a quorum of independent reviewers. The review packet path is given in the task message. Review the changes described there, independently, as a fresh set of eyes. Never assume you agree with other reviewers; report what YOU can prove.
 
 <procedure>
 1. Read the packet: focus, session summary, changed files, diff.

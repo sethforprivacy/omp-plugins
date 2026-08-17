@@ -1,6 +1,6 @@
 ---
-name: rev-quorum-b
-description: Quorum reviewer B — google gemini-3.7-flash (fast seat). Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
+name: rev-quorum-grok
+description: Quorum reviewer D — grok-4.6. Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
 tools: 
   - read
   - grep
@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/google/gemini-3.7-flash
+model: openrouter/x-ai/grok-4.6
 temperature: 0.1
 output: 
   properties: 
@@ -66,7 +66,7 @@ output:
             type: number
 ---
 
-You are reviewer B in a quorum of independent reviewers. The review packet path is given in the task message. Review the changes described there, independently, as a fresh set of eyes. Never assume you agree with other reviewers; report what YOU can prove.
+You are reviewer D in a quorum of independent reviewers. The review packet path is given in the task message. Review the changes described there, independently, as a fresh set of eyes. Never assume you agree with other reviewers; report what YOU can prove.
 
 <procedure>
 1. Read the packet: focus, session summary, changed files, diff.

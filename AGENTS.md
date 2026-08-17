@@ -62,9 +62,9 @@ appeared, so the OMP-native copies are the only ones.
 
 ## Model panel intel (as committed)
 
-- quorum-review active: `rev-quorum-b` = gemini-3.7-flash (route-checked clean 2026-08-13),
-  `rev-quorum-c` = glm-5.2, `rev-quorum-d` = grok-4.6 (all reliable structured findings),
-  `rev-quorum-f` = nvidia nemotron-3.5-lightning (route-checked clean 2026-08-16; cheap,
+- quorum-review active: `rev-quorum-gem` = gemini-3.7-flash (route-checked clean 2026-08-13),
+  `rev-quorum-glm` = glm-5.2, `rev-quorum-grok` = grok-4.6 (all reliable structured findings),
+  `rev-quorum-nemo` = nvidia nemotron-3.5-lightning (route-checked clean 2026-08-16; cheap,
   all live endpoints ≥256K ctx fit packets).
 - security-quorum active: `rev-sec-kimi` = kimi-k3 (route-checked clean 2026-08-14; structured-findings behavior re-confirmed 2026-08-16 — was historically verdict-only), `rev-sec-gem` = gemini-3.7-flash (route-checked clean 2026-08-16 after removing the untyped-array `cwe` output-schema field — the Gemini provider 400s on array-typed schema properties, so the gem seat reports no CWE ids; kimi keeps `cwe` because Moonshot tolerates it).
 - security-quorum parked: `rev-sec-glm` = `z-ai/glm-5.3` — **not yet published on OpenRouter**
@@ -72,7 +72,7 @@ appeared, so the OMP-native copies are the only ones.
   a route check.
 - quorum-review parked (disabled seats, do not enable without a route check):
   deepseek-v4-pro-0813 (blocked), qwen3.8-max (flapping).
-- `nvidia/nemotron-3.5-lightning` committed as `rev-quorum-f` (2026-08-16) using the canonical
+- `nvidia/nemotron-3.5-lightning` committed as `rev-quorum-nemo` (2026-08-16) using the canonical
   `openrouter/nvidia/nemotron-3.5-lightning` ID. Do NOT use `:coreweave/bf16` / `:deepinfra/bf16`
   variant IDs — those left the OpenRouter catalog; the base ID now routes DeepInfra/CoreWeave
   (both 256K ctx) and Venice (1M ctx), all fine for packets.

@@ -79,7 +79,7 @@ agent: <seat name from panel.mjs>
 name:  <seat name>
 ```
 
-- `agent:` MUST be the exact seat name printed by `panel.mjs` (e.g. `rev-quorum-c`). Copy it
+- `agent:` MUST be the exact seat name printed by `panel.mjs` (e.g. `rev-quorum-glm`). Copy it
   verbatim; do not paraphrase or re-derive it.
 - NEVER set `agent:` to `scout`, `reviewer`, `task`, `security-reviewer`, or any other
   non-seat agent for a panel review. If you catch yourself about to, stop — you are off

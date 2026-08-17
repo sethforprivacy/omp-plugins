@@ -1,6 +1,6 @@
 ---
-name: rev-quorum-e
-description: Quorum reviewer E — qwen3.8-max. Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
+name: rev-quorum-nemo
+description: Quorum reviewer F — nvidia nemotron-3.5-lightning (openrouter). Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
 tools: 
   - read
   - grep
@@ -12,8 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/qwen/qwen3.8-max
-disable: true
+model: openrouter/nvidia/nemotron-3.5-lightning
 temperature: 0.1
 output: 
   properties: 
@@ -67,7 +66,7 @@ output:
             type: number
 ---
 
-You are reviewer D in a quorum of independent reviewers. The review packet path is given in the task message. Review the changes described there, independently, as a fresh set of eyes. Never assume you agree with other reviewers; report what YOU can prove.
+You are reviewer F in a quorum of independent reviewers. The review packet path is given in the task message. Review the changes described there, independently, as a fresh set of eyes. Never assume you agree with other reviewers; report what YOU can prove.
 
 <procedure>
 1. Read the packet: focus, session summary, changed files, diff.

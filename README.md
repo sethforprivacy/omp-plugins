@@ -15,7 +15,7 @@ Two skills share one protocol and one installer:
   **"threat check"**.
 
 - Last verified: 2026-08-16 (bundle restructure; both panels install clean; nemotron-3.5-lightning
-  added as `rev-quorum-f` and route-checked clean; kimi-k3 structured findings re-confirmed)
+  added as `rev-quorum-nemo` and route-checked clean; kimi-k3 structured findings re-confirmed)
 
 ## Layout
 
@@ -102,10 +102,10 @@ it runs. A seat is active unless it carries `disable: true`.
 
 | Seat | Model | Notes |
 |---|---|---|
-| `rev-quorum-b` | `openrouter/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13 |
-| `rev-quorum-c` | `openrouter/z-ai/glm-5.2` | Reliable structured findings |
-| `rev-quorum-d` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed |
-| `rev-quorum-f` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets |
+| `rev-quorum-gem` | `openrouter/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13 |
+| `rev-quorum-glm` | `openrouter/z-ai/glm-5.2` | Reliable structured findings |
+| `rev-quorum-grok` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed |
+| `rev-quorum-nemo` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets |
 
 ### security-quorum (as committed)
 
@@ -119,8 +119,8 @@ it runs. A seat is active unless it carries `disable: true`.
 | Seat | Model | Why parked |
 |---|---|---|
 | `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | **Not yet on OpenRouter** (listed models stop at `glm-5.2`); enable only after route check |
-| `rev-quorum-a` | `openrouter/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
-| `rev-quorum-e` | `openrouter/qwen/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
+| `rev-quorum-deepseek` | `openrouter/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
+| `rev-quorum-qwen` | `openrouter/qwen/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
 
 **Enable / change a model:**
 

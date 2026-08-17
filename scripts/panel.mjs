@@ -8,7 +8,7 @@
 //   panel.mjs --agents-dir <path>   # override agent discovery dir
 //
 // Output (markdown):
-//   rev-quorum-b — venice/moonshotai/kimi-k3
+//   rev-quorum-gem — openrouter/google/gemini-3.7-flash
 // Active = file matches <prefix>*.md (default prefix `rev-quorum-`), has frontmatter
 // `name:` and `model:`, and is not `disable: true`. Skills that maintain their own panel
 // family pass `--prefix` (e.g. `rev-sec-` for the security-quorum panel).
