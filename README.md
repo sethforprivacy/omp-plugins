@@ -102,17 +102,23 @@ it runs. A seat is active unless it carries `disable: true`.
 
 | Seat | Model | Notes |
 |---|---|---|
-| `rev-quorum-gem` | `openrouter/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13 |
-| `rev-quorum-glm` | `openrouter/z-ai/glm-5.2` | Reliable structured findings |
-| `rev-quorum-grok` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed |
-| `rev-quorum-nemo` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets |
+| `rev-quorum-gem` | `openrouter/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13. `thinking-level: medium` |
+| `rev-quorum-glm` | `openrouter/z-ai/glm-5.2` | Reliable structured findings. `thinking-level: high` |
+| `rev-quorum-grok` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed. `thinking-level: medium` |
+| `rev-quorum-nemo` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets. `thinking-level: minimal` |
+
+Every active seat pins `thinking-level:` in its frontmatter — calibrated 2026-08-18 against
+one controlled diff (Flint PR16), full evidence in [`docs/thinking-levels.md`](docs/thinking-levels.md).
+Grok was downgraded from its upstream `high` to `medium`: measured `xhigh`/`high` add 2.5–13×
+runtime for ≤1/9 completeness, and the recommended `xhigh` boost did not reproduce — re-test
+with a buggy sample before re-raising it.
 
 ### security-quorum (as committed)
 
 | Seat | Model | Notes |
 |---|---|---|
-| `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract) |
-| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Route-checked clean 2026-08-16. Was 400ing persistently: the Gemini provider rejects `type: array` output-schema properties, so this seat ships WITHOUT the `cwe` field (no CWE ids in its findings). kimi alone keeps `cwe` |
+| `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `thinking-level: max` |
+| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Route-checked clean 2026-08-16. Was 400ing persistently: the Gemini provider rejects `type: array` output-schema properties, so this seat ships WITHOUT the `cwe` field (no CWE ids in its findings). kimi alone keeps `cwe`. `thinking-level: high` (upgraded from default medium — at `low` it was 2/9-coverage in 10 s, too shallow for a security seat) |
 
 ### Parked (disabled until their route/policy situation changes)
 

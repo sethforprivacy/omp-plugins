@@ -13,6 +13,7 @@ tools:
 spawns: 
   - scout
 model: openrouter/google/gemini-3.7-flash
+thinking-level: medium
 temperature: 0.1
 output: 
   properties: 

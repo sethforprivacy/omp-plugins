@@ -13,6 +13,7 @@ tools:
 spawns: 
   - scout
 model: openrouter/x-ai/grok-4.6
+thinking-level: medium
 temperature: 0.1
 output: 
   properties: 

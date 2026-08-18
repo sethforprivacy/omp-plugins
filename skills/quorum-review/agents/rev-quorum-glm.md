@@ -13,6 +13,7 @@ tools:
 spawns: 
   - scout
 model: openrouter/z-ai/glm-5.2
+thinking-level: high
 temperature: 0.1
 output: 
   properties: 

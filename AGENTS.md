@@ -67,6 +67,28 @@ appeared, so the OMP-native copies are the only ones.
   `rev-quorum-nemo` = nvidia nemotron-3.5-lightning (route-checked clean 2026-08-16; cheap,
   all live endpoints ≥256K ctx fit packets).
 - security-quorum active: `rev-sec-kimi` = kimi-k3 (route-checked clean 2026-08-14; structured-findings behavior re-confirmed 2026-08-16 — was historically verdict-only), `rev-sec-gem` = gemini-3.7-flash (route-checked clean 2026-08-16 after removing the untyped-array `cwe` output-schema field — the Gemini provider 400s on array-typed schema properties, so the gem seat reports no CWE ids; kimi keeps `cwe` because Moonshot tolerates it).
+
+## Thinking levels (pinned 2026-08-18)
+
+Each active seat pins `thinking-level:` in its frontmatter. Calibrated 2026-08-18 by running
+every model at every supported level against one controlled diff (Flint PR16 — sweep
+labeler + deposit-UI move); full methodology and per-level data in
+`docs/thinking-levels.md`. Summary:
+
+- `rev-quorum-gem` gemini-3.7-flash → `medium` (upstream default; high adds tools, not coverage)
+- `rev-quorum-glm` glm-5.2 → `high` (upstream default; low/medium measurably thinner)
+- `rev-quorum-grok` grok-4.6 → `medium` (downgraded from default high: high/xhigh add 2.5–13×
+  time for ≤1/9 completeness on a clean sample; xhigh's code-review boost was NOT observed —
+  re-test with a buggy sample before re-raising)
+- `rev-quorum-nemo` nemotron-3.5-lightning → `minimal` (its best coverage at ~1/6 of high's time;
+  "minimal" still reasons — not off)
+- `rev-sec-gem` gemini-3.7-flash → `high` (upgraded from default medium; low was 2/9 coverage
+  in 10 s — too shallow for a security seat)
+- `rev-sec-kimi` kimi-k3 → `max` (upstream default; deepest security explanations)
+
+Effort measures (tool calls, thinking-token volume, wall time) rise monotonically with level
+on every model; completeness does not always follow. See `docs/thinking-levels.md` for the
+per-level evidence table before changing any pinned level.
 - security-quorum parked: `rev-sec-glm` = `z-ai/glm-5.3` — **not yet published on OpenRouter**
   (API lists only through `glm-5.2`; open weights expected within weeks). Enable ONLY after
   a route check.

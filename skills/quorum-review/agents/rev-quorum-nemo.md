@@ -13,6 +13,7 @@ tools:
 spawns: 
   - scout
 model: openrouter/nvidia/nemotron-3.5-lightning
+thinking-level: minimal
 temperature: 0.1
 output: 
   properties: 

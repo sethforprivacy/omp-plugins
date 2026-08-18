@@ -13,6 +13,7 @@ tools:
 spawns: 
   - scout
 model: openrouter/moonshotai/kimi-k3
+thinking-level: max
 temperature: 0.1
 output: 
   properties: 
