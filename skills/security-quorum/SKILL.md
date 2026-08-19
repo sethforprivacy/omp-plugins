@@ -33,9 +33,10 @@ Changing the panel = editing those files only:
 - **Enable a parked seat:** remove `disable: true`, route-check it (§4), then confirm the
   panel with `panel.mjs --prefix rev-sec-`.
 
-Current seat note: `rev-sec-glm` is pinned to `z-ai/glm-5.3` and **parked** (`disable: true`)
-until that model is published on OpenRouter. Only a clean route check (not just a model being
-listed) should unlock it.
+Current seat note: `rev-sec-glm` is pinned to `z-ai/glm-5.3` and active since 2026-08-19
+(glm-5.3 is published on OpenRouter; the previous "parked until published" note is stale).
+It ships without the `cwe` output field — the z-ai provider rejects the untyped array as a
+402 at spawn. `thinking-level: xhigh` (calibrated on the Flint benchmark 2026-08-19).
 
 ## When to run
 

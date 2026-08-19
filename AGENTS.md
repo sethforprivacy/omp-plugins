@@ -63,10 +63,11 @@ appeared, so the OMP-native copies are the only ones.
 ## Model panel intel (as committed)
 
 - quorum-review active: `rev-quorum-gem` = gemini-3.7-flash (route-checked clean 2026-08-13),
-  `rev-quorum-glm` = glm-5.2, `rev-quorum-grok` = grok-4.6 (all reliable structured findings),
-  `rev-quorum-nemo` = nvidia nemotron-3.5-lightning (route-checked clean 2026-08-16; cheap,
-  all live endpoints ≥256K ctx fit packets).
-- security-quorum active: `rev-sec-kimi` = kimi-k3 (route-checked clean 2026-08-14; structured-findings behavior re-confirmed 2026-08-16 — was historically verdict-only), `rev-sec-gem` = gemini-3.7-flash (route-checked clean 2026-08-16 after removing the untyped-array `cwe` output-schema field — the Gemini provider 400s on array-typed schema properties, so the gem seat reports no CWE ids; kimi keeps `cwe` because Moonshot tolerates it).
+  `rev-quorum-glm` = glm-5.3 (swapped from glm-5.2 2026-08-19 after glm-5.3 hit OpenRouter;
+  route-checked clean same day), `rev-quorum-grok` = grok-4.6 (all reliable structured
+  findings), `rev-quorum-nemo` = nvidia nemotron-3.5-lightning (route-checked clean
+  2026-08-16; cheap, all live endpoints ≥256K ctx fit packets).
+- security-quorum active: `rev-sec-kimi` = kimi-k3 (route-checked clean 2026-08-14; structured-findings behavior re-confirmed 2026-08-16 — was historically verdict-only), `rev-sec-gem` = gemini-3.7-flash (route-checked clean 2026-08-16 after removing the untyped-array `cwe` output-schema field — the Gemini provider 400s on array-typed schema properties, so the gem seat reports no CWE ids), `rev-sec-glm` = glm-5.3 (route-checked clean 2026-08-19 after removing the same `cwe` field — **z-ai/glm-5.3 rejects the untyped array too**, surfacing as a 402 credit-style error at spawn rather than Gemini's 400; kimi keeps `cwe` because Moonshot tolerates it).
 
 ## Thinking levels (pinned 2026-08-18)
 
@@ -76,7 +77,9 @@ labeler + deposit-UI move); full methodology and per-level data in
 `docs/thinking-levels.md`. Summary:
 
 - `rev-quorum-gem` gemini-3.7-flash → `medium` (upstream default; high adds tools, not coverage)
-- `rev-quorum-glm` glm-5.2 → `high` (upstream default; low/medium measurably thinner)
+- `rev-quorum-glm` glm-5.3 → `medium` (downgraded from the glm-5.2-era high 2026-08-19:
+  at 5.3, medium matches high's 9/9 completeness at ~1/5 the wall time; high's only unique
+  output was one P3 test-enumeration nit)
 - `rev-quorum-grok` grok-4.6 → `medium` (downgraded from default high: high/xhigh add 2.5–13×
   time for ≤1/9 completeness on a clean sample; xhigh's code-review boost was NOT observed —
   re-test with a buggy sample before re-raising)
@@ -84,16 +87,19 @@ labeler + deposit-UI move); full methodology and per-level data in
   "minimal" still reasons — not off)
 - `rev-sec-gem` gemini-3.7-flash → `high` (upgraded from default medium; low was 2/9 coverage
   in 10 s — too shallow for a security seat)
+- `rev-sec-glm` glm-5.3 → `xhigh` (new seat, pinned 2026-08-19 — deep detection is the lever
+  for a security seat: on the Flint benchmark only xhigh caught the one real defect at full
+  severity with the strongest evidence; low-effort runs at ~8 tools were a detection coin-flip)
 - `rev-sec-kimi` kimi-k3 → `max` (upstream default; deepest security explanations)
 
 Effort measures (tool calls, thinking-token volume, wall time) rise monotonically with level
 on every model; completeness does not always follow. See `docs/thinking-levels.md` for the
 per-level evidence table before changing any pinned level.
-- security-quorum parked: `rev-sec-glm` = `z-ai/glm-5.3` — **not yet published on OpenRouter**
-  (API lists only through `glm-5.2`; open weights expected within weeks). Enable ONLY after
-  a route check.
 - quorum-review parked (disabled seats, do not enable without a route check):
   deepseek-v4-pro-0813 (blocked), qwen3.8-max (flapping).
+- `z-ai/glm-5.3` is published on OpenRouter (2026-08-19; 1M ctx, 131k max output, ~45% pricier
+  output than glm-5.2). The older "not yet published" parking note for `rev-sec-glm` is stale —
+  the seat is now active on glm-5.3.
 - `nvidia/nemotron-3.5-lightning` committed as `rev-quorum-nemo` (2026-08-16) using the canonical
   `openrouter/nvidia/nemotron-3.5-lightning` ID. Do NOT use `:coreweave/bf16` / `:deepinfra/bf16`
   variant IDs — those left the OpenRouter catalog; the base ID now routes DeepInfra/CoreWeave
@@ -127,7 +133,11 @@ deliberately excluded. Tune there as real runs surface misses, keeping criteria 
   properties that are `type: array` without `items` — the harness's frontmatter→schema converter
   drops an `items:` key if you try to add one. The `rev-sec-gem` seat 400ed persistently on its
   `cwe` array; fixes: remove such fields from that seat's schema (gem now ships without `cwe`).
-  Moonshot accepts the same untyped array — `rev-sec-kimi` still carries `cwe`.
+  Moonshot accepts the same untyped array — `rev-sec-kimi` still carries `cwe`. Same field also
+  breaks `z-ai/glm-5.3` (observed 2026-08-19), but there it surfaces NOT as a 400 but as a
+  provider 402 at request time ("requires more credits, or fewer max_tokens ... can only afford
+  5976") — looks like a billing error, is actually the schema. `rev-sec-glm` therefore ships
+  without `cwe` too; the kimi seat is the only one carrying it.
 - git status collapses untracked DIRS to `?? dir/` → packet.mjs uses `-uall` + `statSync`
   file guard; never reintroduce naked `readFileSync` over untracked paths.
 - `dedupe --dir` scans every `.json` (its own `*.report.json` excluded) — pass explicit

@@ -1,6 +1,6 @@
 ---
 name: rev-quorum-glm
-description: Quorum reviewer C — z-ai glm-5.2 (openrouter). Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
+description: Quorum reviewer C — z-ai glm-5.3 (openrouter). Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
 tools: 
   - read
   - grep
@@ -12,8 +12,8 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/z-ai/glm-5.2
-thinking-level: high
+model: openrouter/z-ai/glm-5.3
+thinking-level: medium
 temperature: 0.1
 output: 
   properties: 

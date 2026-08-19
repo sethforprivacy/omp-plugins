@@ -116,3 +116,97 @@ findings, and the deepest runs verified individually against the pinned
 Raw per-seat results: `~/.omp/quorum-think/zzt-*.json` (22 files). Transcripts with
 per-run `thinking_level_change`, tool-call and thinking-volume data live under
 `~/.omp/agent/sessions/-repos-personal-quorum-review/2026-08-18T20-46-44-125Z_…/Zzt*.jsonl`.
+
+---
+
+# glm-5.3 recalibration (2026-08-19)
+
+`z-ai/glm-5.3` hit OpenRouter (1M ctx, 131k max output, output ~45% pricier than 5.2), so
+both quorums were moved onto it: `rev-quorum-glm` (5.2→5.3) and `rev-sec-glm` (enabled,
+5.3). Every GLM seat was re-benchmarked at all five levels (minimal/low/medium/high/xhigh)
+against the same Flint PR16 benchmark — one run per level per panel, 10 runs total, same
+packets (`/tmp/pkts/quorum-packet.md` standard, `/tmp/pkts/sec-packet.md` security, rebuilt
+from the same staged diff in a scratch worktree at `4be5ef9`+PR16).
+
+Note: a route-check blocked `rev-sec-glm` at spawn with a **402** ("can only afford 5976")
+before any bench run. Isolated cause: the `cwe` untyped-array schema property — z-ai/glm-5.3
+rejects it like Gemini does (see AGENTS.md gotchas), but as a 402 at request time, not a 400.
+Removing `cwe` from `rev-sec-glm` cleared it (route-check clean, then all bench runs landed).
+
+## Standard (quorum-review)
+
+| level | tools | thinking chars | verdict | conf | cov | findings | time |
+|---|---|---|---|---|---|---|---|
+| minimal | 36 | 11.7k | correct | .90 | 8/9 | — | 5m48* |
+| low | 26 | 10.8k | correct | .85 | 7/9 | — | 4m14 |
+| medium | 26 | 10.8k | correct | .85 | 9/9 | — | 3m57 |
+| high | 61 | 63.5k | correct | .85 | 9/9 | P3: singleton-enumeration test gap for the new labeler | 19m28* |
+| xhigh | 61 | 49.8k | correct | .90 | 9/9 | — | 17m09 |
+
+\* first spawn 402'd (account credit flap, not level-related); successful retry timed.
+
+## Security (security-quorum)
+
+Same 9-subclaim coverage scoring; the review surfaced a REAL defense-in-depth defect the
+packet's attacker model provokes: `BTCPayWalletSweepTransactionLabeler.LabelAsync` writes the
+provider-supplied sweep txid into the store's wallet as a labelled wallet-object with only a
+null/empty check — no 64-char-hex validation — even though the plugin already validates the
+same class of externally-supplied 32-byte ids in `SparkLightningClient.NormaliseHash`
+(SparkLightningClient.cs:1035-1049). Verified against the worktree; the control is proven
+feasible and simply missing on the new path. Severity is defense-in-depth (the provider
+already controls the swept funds): a malicious provider can attach the sweep label to an
+arbitrary txid in the merchant's wallet and persist arbitrary strings as wallet-object ids.
+
+| level | tools | thinking chars | verdict | conf | cov | findings | time |
+|---|---|---|---|---|---|---|---|
+| minimal | 7 | 7.4k | **incorrect** | .60 | 7/9 | P2 txid-validation (.60) | 2m27 |
+| low | 8 | 3.8k | correct | .80 | 5/9 | — | 1m12 |
+| medium | 23 | 12.1k | correct | .82 | 8/9 | P3 arg-guards outside labeler try (.60) | 4m31† |
+| high | 27 | 28.4k | correct | .88 | 7/9 | P3 txid-validation (.55) | 6m35 |
+| xhigh | 34 | 33.9k | **incorrect** | .55 | 9/9 | P2 txid-validation (.65, NormaliseHash precedent) | 10m17‡ |
+
+\† needed 6 spawns (4× transient 402 + one incomplete confidence-only yield) before a full
+result; the 402 flap is account-credit, not level-driven (standard medium landed first try).
+\‡ first run failed `schema_violation` on the verdict enum after a complete review; retry
+delivered the full result.
+
+## Findings
+
+- **Standard completeness saturates at `medium`.** minimal/low drop a subclaim or two
+  (test-constructor propagation, permissions, wallet-object semantics), but medium ties high
+  and xhigh at 9/9 — at ~1/5 the wall time (3m57 vs 19m28/17m09) and 26 vs 61 tools. On the
+  clean standard sample, high's only unique output was one P3 test-enumeration nit (the
+  new labeler singleton missing from the startup-test enumeration). The glm-5.2-era basis
+  for `high` ("low/medium measurably thinner 6–7/9") does not reproduce at 5.3.
+- **Security detection is NOT monotonic in level — and it discriminated.** The one real
+  defect was caught at full severity (P2, `incorrect`) by **minimal** (7 tools, 2m27 — the
+  cheapest run of the sweep) and **xhigh** (34 tools, strongest brief, NormaliseHash
+  precedent); **high** flagged it but downgraded to P3; **medium** found a different real
+  nit (arg-guards outside the labeler's swallow-all try — also verified real) but missed the
+  txid sink; **low** found nothing. The near-identical 7-8-tool runs (minimal vs low) went
+  opposite ways, so low-effort security detection is a coin-flip — not a reliable seat
+  behavior. For a security pass this points at depth over speed.
+- **glm-5.3 remains a reliably structured reviewer** at every level: all full runs returned
+  valid verdicts; the only schema failure (xhigh) recovered on retry.
+
+## Applied levels (glm delta vs the 2026-08-18 pin)
+
+| Seat | Model | `thinking-level` | Basis |
+|---|---|---|---|
+| rev-quorum-glm | glm-5.3 | `medium` **(was high)** | tie at 9/9 with high/xhigh at ~1/5 the time; high's only unique output was one P3 nit; "lower levels thinner" no longer holds at 5.3 |
+| rev-sec-glm | glm-5.3 | `xhigh` **(new seat)** | only level to catch the txid defect at full severity with the deepest evidence; detection reliability (not cost) is the security-seat job; low-effort runs coin-flip |
+
+## Caveats (2026-08-19)
+
+- n=1 per level; the security signal rests on ONE defect. The txid finding is defense-in-depth
+  (P2/P3), not P0/P1 — it measures severity-framing and detection reliability, not criticality.
+- Standard-side detection is still unmeasurable (clean sample); the `medium` pin assumes 5.3's
+  completeness plateau holds on buggy samples too.
+- The 402 credit flap cost ~9 wasted spawns across the sweep and interleaved with successes on
+  identical configs — treat OpenRouter 402s on glm-5.3 as flaky-account, retry before blaming
+  the seat.
+
+## Evidence
+
+Raw per-seat results: `~/.omp/quorum-think/zzt-glm-5.3-{std,sec}-{minimal,low,medium,high,xhigh}.json`
+(10 files). Transcripts under the 2026-08-19 session (`GlmStd*`, `GlmSec*`).

@@ -103,7 +103,7 @@ it runs. A seat is active unless it carries `disable: true`.
 | Seat | Model | Notes |
 |---|---|---|
 | `rev-quorum-gem` | `openrouter/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13. `thinking-level: medium` |
-| `rev-quorum-glm` | `openrouter/z-ai/glm-5.2` | Reliable structured findings. `thinking-level: high` |
+| `rev-quorum-glm` | `openrouter/z-ai/glm-5.3` | Swapped to 5.3 2026-08-19 (now published; route-checked clean). Reliable structured findings, deep reviewer. `thinking-level: medium` (downgraded from the glm-5.2-era `high` — at 5.3, medium matches high's completeness at ~1/5 the wall time) |
 | `rev-quorum-grok` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed. `thinking-level: medium` |
 | `rev-quorum-nemo` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets. `thinking-level: minimal` |
 
@@ -118,13 +118,13 @@ with a buggy sample before re-raising it.
 | Seat | Model | Notes |
 |---|---|---|
 | `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `thinking-level: max` |
+| `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | Activated 2026-08-19 once glm-5.3 published on OpenRouter (seat was parked while it wasn't). Ships WITHOUT `cwe` — z-ai rejects the untyped array as a 402 at spawn. `thinking-level: xhigh` (deep detection is the security lever: caught the one real defect on the Flint benchmark at full severity; low-effort runs were detection coin-flips) |
 | `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Route-checked clean 2026-08-16. Was 400ing persistently: the Gemini provider rejects `type: array` output-schema properties, so this seat ships WITHOUT the `cwe` field (no CWE ids in its findings). kimi alone keeps `cwe`. `thinking-level: high` (upgraded from default medium — at `low` it was 2/9-coverage in 10 s, too shallow for a security seat) |
 
 ### Parked (disabled until their route/policy situation changes)
 
 | Seat | Model | Why parked |
 |---|---|---|
-| `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | **Not yet on OpenRouter** (listed models stop at `glm-5.2`); enable only after route check |
 | `rev-quorum-deepseek` | `openrouter/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
 | `rev-quorum-qwen` | `openrouter/qwen/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
 
