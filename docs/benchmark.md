@@ -238,3 +238,50 @@ attempt does not count against the seat's retry budget.
   before trusting it on that class. Consider testing grok-sec at `high`.
 - S3 sample should either gain a producer (so the drop is live, severity P1–P2 honest) or
   its ground truth stays P2–P3.
+
+---
+
+# Iteration 2 — ansible stack (protocol pre-committed 2026-08-20, runs pending)
+
+**Question under test:** do `rev-quorum-gem` and `rev-quorum-nemo` earn their standard-panel
+seats? Both detected nothing on any Flint defective sample; iteration 2 removes the two
+strongest excuses — stack specificity (C#/BTCPay → ansible/YAML infra) and diff size (~33 KB
+→ ~2 KB: a 3-file, ~20-line change is the easiest detection surface a seat will ever get).
+`glm` and `grok` run the same cells as detectability controls.
+
+## Sample set
+
+Base: scratch worktree of `~/repos/work/ansible` at `dd6c9bd^1` with the PR #80 diff applied
+uncommitted (gha-deploy drops passwordless sudo; new `cakepay-backend.yaml` playbook chowns
+`/opt/cakepay` to gha-deploy). Seeds are one-line edits to the new playbook, stored as
+`bench/A1-ignore-errors.patch` and `bench/A2-undefined-when.patch`.
+
+- **A0 — clean control.** PR80 as-is. FP control + verdict (`correct` expected).
+- **A1 — seeded fail-open.** `ignore_errors: yes` on the chown task: a failed ownership
+  handover reports play success while the standing sudo grant is already gone — deploys
+  break silently. Class error-handling/fail-open, fair severity **P1–P2**.
+- **A2 — seeded silent skip.** `when: cakepay_deploy_user is defined` on the chown task; the
+  variable is defined nowhere in the repo (verified by grep across yaml/yml/cfg), so the
+  play's only task silently skips every run — the playbook is a green no-op and the sudo
+  grant it replaces is already gone. Detecting it requires the cross-file check (is the var
+  defined in inventory/group_vars/host_vars/vars?). Class logic/config, fair severity
+  **P1–P2**.
+
+## Run matrix
+
+All four ACTIVE standard seats at their PINNED levels only (the question is seat value, not
+level): gem `medium`, glm `medium`, grok `medium`, nemo `minimal` × A0/A1/A2 = 12 cells.
+Standard packet, identical focus/summary across samples, solo spawns, one protocol retry for
+transient infra failures.
+
+## Decision rule (pre-committed)
+
+- A standard seat is **parked** iff, across BOTH iterations' defective samples (Flint S2/S3 +
+  ansible A1/A2), it detected nothing that entered consensus clustering (verdict-only counts
+  as nothing), **while ≥2 other seats detected on the same samples** (detectability proven),
+  **AND** its corroboration never changed a consensus outcome.
+- Park, don't delete: seat files stay with `disable: true` (the `rev-sec-gem` precedent) so
+  re-enabling on a future model version is one line + reinstall.
+- If the CONTROLS also miss a sample, that sample is discarded as too hard and decides
+  nothing.
+- Ties/partial evidence → the seat stays active (incumbent rule).
