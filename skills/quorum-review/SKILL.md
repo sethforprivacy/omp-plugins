@@ -56,6 +56,20 @@ node ~/.omp/agent/skills/quorum-review/scripts/packet.mjs \
 - Non-VCS cwd: pass `--files <abs path,abs path,...>` instead (packet embeds file contents).
 - Keep the packet honest: any context that matters but isn't in the diff (recent decisions,
   API contracts, why a shortcut was taken) belongs in `--summary`.
+- Packet shaping (added 2026-08-20, pending live validation):
+  - `--budget <bytes>` caps the **whole packet** (default `300000`, `0` disables), where
+    `--limit` caps a single file section (default 100000, applied first). Over budget, the
+    largest patches are dropped and replaced with a "read the file directly" note — the files
+    stay in the changed-files table, so nothing disappears silently. Focus, summary, the
+    changed-files table and the omission notes are never dropped.
+  - Lockfiles and generated files are excluded from the embedded diff by default (still
+    listed in the changed-files table); `--all-files` puts them back.
+  - Deleted files' patches are stripped from the diff and listed by name instead (a
+    deletion-only EDIT to a living file is kept — removed code is review-critical).
+  - Untracked files arrive **embedded in full**; the packet tells seats not to re-read them
+    from disk.
+  - The final stderr line reports total packet bytes and omission counts — read it, and say
+    so in the report if large patches were dropped.
 
 ### 3. Read the panel and spawn ALL seats in ONE parallel batch
 ```
@@ -89,6 +103,13 @@ name:  <seat name>
   with the working seats. Do NOT replace a failed seat with a local/bundled agent — that
   silently shrinks the panel's independence and fakes a quorum that did not happen.
 
+**Bounded retry policy** (added 2026-08-20, pending live validation). A seat that fails with a
+*transient* error — 400 with an empty body, 402, timeout — is retried **once, solo** (its own
+spawn, not in the batch; concurrency aggravates these flakes). A second failure records the
+seat as failed for this run. Never more than one retry per seat per run, and never substitute
+another agent for it. This keeps the observed 402-flap waste bounded (the glm-5.3 sweep burned
+~9 spawns on retries — see `docs/thinking-levels.md`).
+
 ### 4. Collect results
 Save each delivered result to `~/.omp/quorum-review/<seat>-<timestamp>.json` (raw JSON as
 delivered). If a seat failed to return JSON (route error, auth/policy block, timeout, text-only
@@ -104,6 +125,11 @@ Some models (observed: seed-1.6-flash; kimi-k3 pre-2026-08-14) return a verdict 
 result (their verdict/explanation show in the panel report), but their issues won't enter
 consensus clustering. Don't silently rerun them for structure — note it and move on.
 
+As of 2026-08-20 every seat carries the hardened **one-finding-per-yield output contract**
+(propagated from `rev-sec-kimi`, where it fixed exactly this empty-findings behavior on
+2026-08-14) plus a prompt-injection guard line in its intro. Pending live validation, so a
+verdict-only seat is still possible — record it, don't retry it for structure.
+
 ### 5. Dedupe + rank by consensus
 ```
 node ~/.omp/agent/skills/quorum-review/scripts/dedupe.mjs \
@@ -112,17 +138,81 @@ node ~/.omp/agent/skills/quorum-review/scripts/dedupe.mjs \
 Clusters the same issue reported by different reviewers; shows each finding with
 `→ n/<total> (seats)` corroboration, priority, confidence; aggregates the panel verdict.
 
+Findings may carry an optional `category` field (`logic`, `concurrency`, `api-contract`,
+`data-handling`, `error-handling`, `test-gap`, `perf`, `other`); clustering is category-aware
+as of 2026-08-20 — same category strengthens a cluster, different categories only cluster on
+an exact title match. The mean-confidence line is annotated "(unweighted self-reported; not
+comparable across models)" — treat it as such, and never rank findings by it alone.
+
 ### 6. Present and act — in this session, immediately
 Show the deduped report, then:
 
 | Finding | Response |
 |---|---|
-| P0 or corroborated (≥2 seats) | Fix it now; verify; re-run the panel on the fix if warranted |
-| Single-seat finding | Judge on merit; fix if defensible, else note and move on |
-| Panel verdict split | Surface the disagreement to the user explicitly; don't bury the minority |
+| P0 or corroborated (≥2 seats) | Fix it now; verify; then run the **targeted verify pass** below |
+| Single-seat P0 | Not yours to adjudicate alone — send it to the **arbitration round** first |
+| Single-seat finding (P1–P3) | Judge on merit; fix if defensible, else note and move on |
+| Panel verdict split | Surface it, then run the **arbitration round** (next section) |
+
+**Targeted verify pass** (added 2026-08-20, pending live validation). After fixing a finding,
+do NOT re-run the whole panel by default. Instead:
+
+1. Rebuild a SMALL packet scoped to the fix:
+   `--focus "verify fix of: <finding title>"`, `--summary` carrying the original finding text
+   and exactly what was changed, and a lowered `--budget`.
+2. Spawn **only the seats that reported the finding** (if a reporting seat failed this run,
+   substitute the deepest active seat instead — see `docs/thinking-levels.md` for depth order).
+3. Full-panel re-runs are for large or risky fixes, or when the user asks for one.
 
 Finish by stating what the panel changed, what you chose to ignore (and why), and the current
 verdict. These are notes for your own review loop, not a report to be filed away.
+
+## Arbitration round (contested findings)
+
+Added 2026-08-20 (pending live validation). Runs **at most ONCE per review**, and only when
+triggered:
+
+- the panel verdict splits (both `correct` and `incorrect` present), **or**
+- a **P0** finding is uncorroborated (1 seat).
+
+Never arbitrate P1/P2/P3 single-seat findings — judge those on merit as before.
+
+**1. Build a mini-packet** (a small markdown file, e.g. `/tmp/quorum-arbitration.md`):
+
+- the contested finding(s) **verbatim** — title, body, location;
+- the cited code slice, ±20 lines, read from disk (not from memory);
+- each seat's verdict + explanation with seat and model names **replaced by
+  "Reviewer 1..N"**. Anonymize — naming the models anchors the arbitrators on model
+  reputation instead of the code. Chatham House rules.
+
+**2. Spawn set:** the reporting seat plus two non-reporting active seats (all active seats if
+only 3 are active). ONE parallel batch. **Seats only** — the same rule as §3.
+
+**3. Task text** — instruct each seat:
+
+```
+task: Evaluate ONLY the contested finding(s) in /tmp/quorum-arbitration.md, against that
+      mini-packet and the code it cites. Return overall_correctness: "incorrect" if you
+      now judge the finding a real defect (AGREE), or "correct" if you do not (DISAGREE),
+      with a 1-3 sentence explanation. Findings yields are optional and only for
+      corrections to the contested finding itself.
+agent: <seat name from panel.mjs>
+name:  <seat name>
+```
+
+**4. Outcome mapping:**
+
+| Arbitration result | Action |
+|---|---|
+| ≥2 seats AGREE | Treat the finding as corroborated — fix it |
+| Majority DISAGREE | Mark it "disputed — rejected in arbitration"; still show it, with the reasoning, in the final summary |
+
+Never a second round. Record the arbitration outcome in the final summary either way.
+
+*Why:* single-seat P0s and verdict splits were previously adjudicated by the local
+orchestrator alone — the exact failure mode quorum exists to avoid. Public multi-model
+implementations (Star Chamber's debate mode, multi-model-debate) show that one anonymized
+round is enough to change verdicts.
 
 ## Handling failures (degraded panel)
 
@@ -140,7 +230,13 @@ verdict. These are notes for your own review loop, not a report to be filed away
 - Scripts live in `~/.omp/agent/skills/quorum-review/scripts/` — use absolute paths
   (cwd varies by project).
 - `packet.mjs --help`-style flags: `--focus`, `--summary`, `--files`, `--limit <bytes>`,
-  `--out`, `--json`.
+  `--budget <bytes>` (global packet cap, default `300000`, `0` disables), `--all-files`
+  (keep lockfiles/generated files in the embedded diff — excluded by default), `--out`,
+  `--json`. Diffs are handled per file; deleted files' patches are stripped and listed by name;
+  untracked files are embedded in full and seats are told not to re-read them from disk.
+  Over-budget packets drop the largest patches (replaced with a "read the file directly"
+  note) and the final stderr line reports total packet bytes plus omission counts.
 - `dedupe.mjs`: pass the specific result files from this run. `--dir <path>` scans all `*.json` there
   (its own `*.report.json` artifacts are auto-excluded) — use it only on a directory holding exactly
   this run's seat files. `--json` writes a machine-readable merged report next to `--out`.
+  Clustering is category-aware (see §5) and renders `cwe` when a finding carries it.

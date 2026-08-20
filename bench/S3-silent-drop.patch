@@ -1,0 +1,27 @@
+diff --git a/BTCPayServer.Plugins.Flint/Sdk/SparkModel.cs b/BTCPayServer.Plugins.Flint/Sdk/SparkModel.cs
+index 1406af8..784768c 100644
+--- a/BTCPayServer.Plugins.Flint/Sdk/SparkModel.cs
++++ b/BTCPayServer.Plugins.Flint/Sdk/SparkModel.cs
+@@ -117,7 +117,8 @@ public enum SparkPaymentStatus
+ {
+     Pending,
+     Completed,
+-    Failed
++    Failed,
++    Expired
+ }
+ 
+ /// <summary>Result of minting a receive request (BOLT11 invoice) on the SSP.</summary>
+diff --git a/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs b/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs
+index 2d02923..c4ee710 100644
+--- a/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs
++++ b/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs
+@@ -1700,7 +1700,7 @@ public sealed class SparkSweepEngine
+                         .ConfigureAwait(false);
+                     break;
+ 
+-                default:
++                case SparkPaymentStatus.Pending:
+                     // Still pending at the service provider, but the exit definitively happened: it has an id and,
+                     // from the very first event, an L1 txid. Recording that is what turns an unknown outcome into
+                     // a sweep the merchant can look up on-chain — and it stops blocking new sweeps, because those

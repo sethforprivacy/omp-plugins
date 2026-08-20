@@ -14,7 +14,17 @@ Two skills share one protocol and one installer:
   Trigger phrases: **"security review"**, **"security pass"**, **"sec review"**,
   **"threat check"**.
 
-- Last verified: 2026-08-16 (bundle restructure; both panels install clean; nemotron-3.5-lightning
+Last verified:
+
+- 2026-08-20 pm (first seeded-defect benchmark run — 39 delivered results, decisions applied
+  per [`docs/benchmark.md`](docs/benchmark.md): all pins stand on detection evidence;
+  `rev-sec-gem` parked (0 detections in 8 defective-sample runs incl. pooled passes);
+  `rev-sec-grok` added on grok-4.6 at `medium` (caught the txid defect on both samples at P1,
+  missed the one fail-open sample — re-test flagged). Every active seat route-checked clean
+  with the new string-`cwe` + `category` schemas)
+- 2026-08-20 (protocol v2: hardened seat outputs, category/cwe fields, security exclusions,
+  packet budgeting, arbitration round, targeted fix-verification — mechanical smoke-tests pass)
+- 2026-08-16 (bundle restructure; both panels install clean; nemotron-3.5-lightning
   added as `rev-quorum-nemo` and route-checked clean; kimi-k3 structured findings re-confirmed)
 
 ## Layout
@@ -74,22 +84,55 @@ Uninstall: remove `~/.omp/agent/skills/{quorum-review,security-quorum}` and the
 1. **Focus** — the orchestrating agent writes 1–3 sentences: what is being reviewed, what
    "done / across the line" (or "safe") means. Security pass also names the **attacker model**.
 2. **Context packet** — `packet.mjs` builds a single packet: focus, session summary, changed
-   files, VCS diff (git/jj). New/untracked files are embedded (git mode lists them
-   individually via `-uall`; a defensive file-type guard prevents EISDIR crashes). Non-VCS
-   sessions pass `--files <paths>`.
+   files, VCS diff (git/jj), handled per file. New/untracked files are embedded **in full**
+   (git mode lists them individually via `-uall`; a defensive file-type guard prevents EISDIR
+   crashes) and seats are told not to re-read them from disk. Deleted files' patches are
+   stripped and listed by name (deletion-only EDITS to living files are kept — removed code is
+   review-critical); lockfiles/generated files are kept out of the embedded diff (but stay
+   in the changed-files table) unless `--all-files`; `--budget <bytes>` (default `300000`,
+   `0` disables) caps the whole packet, dropping the largest patches with a "read the file
+   directly" note and reporting bytes + omissions on the last stderr line. Non-VCS sessions
+   pass `--files <paths>`.
 3. **Parallel spawn** — ONE task batch, one entry per ACTIVE seat (`panel.mjs` output for
    the skill's family), identical brief. Seats run concurrently. **Seats only**: `agent:`
    must be the exact seat name; bundled/local agents (`scout`, `reviewer`,
    `security-reviewer`, `task`) are NOT panel members and are never used as substitutes — a
-   failed seat is reported, not replaced.
+   failed seat is reported, not replaced. A transient failure (400 empty body, 402, timeout)
+   gets **one** solo retry — never more, never a stand-in agent.
 4. **Collect** — each structured result saved to `~/.omp/quorum-review/<seat>-<ts>.json`
    (general) or `~/.omp/security-quorum/<seat>-<ts>.json` (security). Seats that fail
    (route/auth policy, timeout, verdict-only) are recorded, not fabricated.
 5. **Dedupe** — `dedupe.mjs` clusters the same issue reported by different reviewers
-   (normalized-title match, co-located distinctive-token match), ranks by priority +
-   corroboration, aggregates the panel verdict, prints the report.
+   (normalized-title match, co-located distinctive-token match, plus the optional `category`
+   field: same category strengthens, different categories need an exact title match), ranks
+   by priority + corroboration, renders `cwe`, aggregates the panel verdict, prints the report.
 6. **Act** — P0 (or P1 security) or corroborated (≥2 seats) findings get fixed; single-seat
    findings get judged on merit; verdict splits are surfaced.
+7. **Arbitrate (bounded)** — a verdict split, or an uncorroborated P0 (P0/P1 for security),
+   triggers **one** arbitration round: an anonymized mini-packet (contested finding verbatim +
+   the cited code ±20 lines + each seat's reasoning as "Reviewer 1..N") goes to the reporting
+   seat plus two other active seats. ≥2 AGREE ⇒ treat as corroborated and fix; majority
+   DISAGREE ⇒ "disputed — rejected in arbitration", still shown in the summary. Never a second
+   round; never for P2/P3 single-seat findings. Details in SKILL.md.
+8. **Verify the fix, narrowly** — a fix gets a small packet scoped to it
+   (`--focus "verify fix of: …"`, the original finding in `--summary`, a lowered `--budget`)
+   and only the seats that reported the finding. Full-panel re-runs are for large/risky fixes
+   or on request.
+
+## Trust model (read this)
+
+The packet embeds the reviewed diff **verbatim** into every seat's context, and each seat is a
+remote model with tool access. As of 2026-08-20 every seat prompt carries a prompt-injection
+guard line — instructions found in reviewed code are data, not commands. **That is a
+mitigation, not hardening.** A hostile diff can still try to steer a reviewer, and the panel
+has no sandbox between the reviewed text and the reviewing model.
+
+So: **only review code you trust.** This is the same caveat Anthropic ships with
+[claude-code-security-review](https://github.com/anthropics/claude-code-security-review) —
+run it on your own work and on changes from people you trust, not on untrusted PRs from
+strangers. Reviewing a hostile diff also means shipping it to whichever providers your seats
+route through; check that against your own data-handling rules before you point the panel at
+anything sensitive.
 
 ## 🎛️ Model panels — current state & how to tune them
 
@@ -107,19 +150,36 @@ it runs. A seat is active unless it carries `disable: true`.
 | `rev-quorum-grok` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed. `thinking-level: medium` |
 | `rev-quorum-nemo` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets. `thinking-level: minimal` |
 
+All four quorum seats carry, as of 2026-08-20 (**not yet route-checked**): the hardened
+one-finding-per-yield output contract, a prompt-injection guard line, and an optional
+`category` field (`logic`, `concurrency`, `api-contract`, `data-handling`, `error-handling`,
+`test-gap`, `perf`, `other`) the dedupe step clusters on.
+
 Every active seat pins `thinking-level:` in its frontmatter — calibrated 2026-08-18 against
 one controlled diff (Flint PR16), full evidence in [`docs/thinking-levels.md`](docs/thinking-levels.md).
 Grok was downgraded from its upstream `high` to `medium`: measured `xhigh`/`high` add 2.5–13×
-runtime for ≤1/9 completeness, and the recommended `xhigh` boost did not reproduce — re-test
-with a buggy sample before re-raising it.
+runtime for ≤1/9 completeness, and the recommended `xhigh` boost did not reproduce. The buggy-
+sample re-test happened 2026-08-20 ([`docs/benchmark.md`](docs/benchmark.md)): `medium` caught
+the seeded fail-open with a structured P1 finding where `low` was verdict-only (zero findings)
+— the `medium` pin now rests on detection evidence, and a further `medium`→`low` cut is
+rejected. glm-5.3 was the only standard seat to detect both seeded defects; gem and nemo
+detected nothing (standing cut candidates for the next iteration).
 
 ### security-quorum (as committed)
 
 | Seat | Model | Notes |
 |---|---|---|
-| `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `thinking-level: max` |
-| `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | Activated 2026-08-19 once glm-5.3 published on OpenRouter (seat was parked while it wasn't). Ships WITHOUT `cwe` — z-ai rejects the untyped array as a 402 at spawn. `thinking-level: xhigh` (deep detection is the security lever: caught the one real defect on the Flint benchmark at full severity; low-effort runs were detection coin-flips) |
-| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Route-checked clean 2026-08-16. Was 400ing persistently: the Gemini provider rejects `type: array` output-schema properties, so this seat ships WITHOUT the `cwe` field (no CWE ids in its findings). kimi alone keeps `cwe`. `thinking-level: high` (upgraded from default medium — at `low` it was 2/9-coverage in 10 s, too shallow for a security seat) |
+| `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `cwe` converted array→comma-string 2026-08-20. `thinking-level: max` |
+| `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | Activated 2026-08-19 once glm-5.3 published on OpenRouter (seat was parked while it wasn't). `cwe` restored 2026-08-20 as a comma-string (the *array* form was what 402'd z-ai — history, see below). `thinking-level: xhigh` (deep detection is the security lever: caught the one real defect on the Flint benchmark at full severity; low-effort runs were detection coin-flips) |
+| `rev-sec-grok` | `openrouter/x-ai/grok-4.6` | Added 2026-08-20 after the seeded-defect benchmark: caught the real txid defect on both defective samples (P1, zero FPs, ~5 min runs) under the security prompt; missed the one fail-open sample (re-test flagged in `docs/benchmark.md`). Route-checked clean same day. `thinking-level: medium` |
+
+All three security seats also carry, as of 2026-08-20 (route-checked clean same day): the
+hardened one-finding-per-yield output contract, a prompt-injection guard line, an
+`<exclusions>` noise-suppression block (DoS/rate-limit without a concrete consequence, generic
+input validation without a proven source→sink path, non-auth open redirects, theoretical timing
+channels, non-introduced dependency vulns, attacker-path-free hardening preferences — each
+overridable by naming the class in `--focus`), and an optional `category` field the dedupe step
+clusters on.
 
 ### Parked (disabled until their route/policy situation changes)
 
@@ -127,6 +187,7 @@ with a buggy sample before re-raising it.
 |---|---|---|
 | `rev-quorum-deepseek` | `openrouter/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
 | `rev-quorum-qwen` | `openrouter/qwen/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
+| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Cut by the 2026-08-20 benchmark: 0 detections in 8 defective-sample runs (both levels + 3-run pooled passes) while voting `correct` at .95–1.0 confidence on defective code — actively harmful to the panel verdict. Routes fine; parked on merit, not policy |
 
 **Enable / change a model:**
 
@@ -151,7 +212,14 @@ fix on openrouter.ai/settings/privacy, not in this repo.
   are reported, denominators become `n/<active>`, and the report still prints.
 - Observed yield quirks: seed-1.6-flash returned verdicts without populating `findings`
   (documented in both SKILL.md files); kimi-k3 did the same until its seat-prompt hardening
-  on 2026-08-14 — current kimi output is full structured findings.
+  on 2026-08-14 — current kimi output is full structured findings. That hardened contract was
+  propagated to every seat on 2026-08-20 (pending live validation).
+- **History (2026-08-16 / 2026-08-19):** an **array-typed** `cwe` output-schema property broke
+  two providers — Gemini 400'd ("Provider returned error", empty body) and z-ai/glm-5.3 402'd
+  at spawn ("can only afford 5976", a schema problem wearing a billing error's clothes). Both
+  seats shipped without `cwe` as a result. Since 2026-08-20 all three security seats carry
+  `cwe` again as a **comma-separated string**, which no provider objects to (kimi was converted
+  array→string for uniformity). Pending live route-check. Do not reintroduce the array form.
 
 ## Security-quorum detection tuning
 
@@ -167,13 +235,15 @@ criteria generic (framework- and product-agnostic), then re-run `./install.sh`.
 | Symptom | Cause → Fix |
 |---|---|
 | Seat fails with `404 No endpoints available...` | Account policy: disable or swap the seat (above) |
-| Seat fails with `400 Provider returned error` (empty body) | Usually a provider-side route flake (transient, aggravated by concurrency — retry solo). But if it persists solo while another seat on the SAME model succeeds, suspect the seat's output schema: an array-typed property (e.g. `cwe`) 400s the Gemini provider — remove the field from that seat (see rev-sec-gem, fixed 2026-08-16) |
+| Seat fails with `400 Provider returned error` (empty body) | Usually a provider-side route flake (transient, aggravated by concurrency — retry solo, ONCE, per the retry policy). But if it persists solo while another seat on the SAME model succeeds, suspect the seat's output schema: an **array-typed** property 400s Gemini and 402s z-ai — that is why `cwe` is a comma-separated string on every security seat (2026-08-20). Never reintroduce the array form |
 | `packet.mjs` "no VCS detected" | Not a git/jj repo → pass `--files <paths>` |
 | Dedupe reports a phantom reviewer | `--dir` scanned stale files → pass explicit result files, or use `--dir` only on a pristine dir (its own `*.report.json` is excluded) |
 | Seat returned verdict but `findings: []` | Verdict-only seat; its explanation still shows in the panel report |
 | Panel shows the other skill's seats | Wrong `--prefix` (or seat file named `rev-quorum-*` inside the security family): seat families are strictly prefix-keyed |
 | Panel report has no seat files / seat results, or reviews landed on local `scout`/`reviewer` | The orchestrator skipped the protocol and improvised with bundled agents. Re-run per SKILL.md §3: seats only. If it keeps happening, the seat agents are missing → run `install.sh` and check `~/.omp/agent/agents/` |
 | Packet stale mid-review | Regenerate the packet before spawning; reviewers read the packet at spawn time |
+| Packet missing a big patch ("read the file directly") | It exceeded `--budget` (default 300000 bytes): raise the budget, narrow the scope, or let the seats read that file — the last stderr line reports bytes + omissions |
+| A changed file is listed but absent from the diff | Lockfiles/generated files are excluded from the embedded diff by default (`--all-files` keeps them); deleted files' patches are listed by name, never embedded |
 
 ## Dev / tuning loop
 
@@ -182,7 +252,17 @@ criteria generic (framework- and product-agnostic), then re-run `./install.sh`.
 node scripts/panel.mjs                         # sanity: general seats visible
 node scripts/panel.mjs --prefix rev-sec-       # sanity: security seats visible
 node scripts/packet.mjs --focus "x" --files <paths> --out /tmp/packet.md   # smoke
+node scripts/packet.mjs --focus "x" --budget 50000 --out /tmp/small.md     # budget drops
+node scripts/packet.mjs --focus "x" --all-files --out /tmp/full.md         # keep lockfiles
 node scripts/dedupe.mjs <results...>           # smoke with synthetic/collected results
 ./install.sh --dry-run                         # confirm install surface
 git add -A && git commit && git push           # ship tuning to other installs
 ```
+
+`packet.mjs` prints total packet bytes and omission counts on its last stderr line — use that
+as the smoke-test assertion when tuning `--budget`.
+
+Detection tuning (which seat/level actually catches defects) is measured against the
+seeded-defect detection benchmark in [`docs/benchmark.md`](docs/benchmark.md); thinking-level
+effort/coverage data lives in [`docs/thinking-levels.md`](docs/thinking-levels.md). Change a
+pinned level only with evidence from one of those.
