@@ -16,6 +16,10 @@ Two skills share one protocol and one installer:
 
 Last verified:
 
+- 2026-08-20 eve (benchmark iteration 2, ansible stack: gem/nemo cut question settled — both
+  seats STAY; all four standard seats caught the seeded silent-skip on a ~2 KB infra diff,
+  and the panel surfaced a real unseeded sudo-revocation gap in merged work (glm+nemo 2/4).
+  Full results in `docs/benchmark.md`)
 - 2026-08-20 pm (first seeded-defect benchmark run — 39 delivered results, decisions applied
   per [`docs/benchmark.md`](docs/benchmark.md): all pins stand on detection evidence;
   `rev-sec-gem` parked (0 detections in 8 defective-sample runs incl. pooled passes);
@@ -162,8 +166,12 @@ runtime for ≤1/9 completeness, and the recommended `xhigh` boost did not repro
 sample re-test happened 2026-08-20 ([`docs/benchmark.md`](docs/benchmark.md)): `medium` caught
 the seeded fail-open with a structured P1 finding where `low` was verdict-only (zero findings)
 — the `medium` pin now rests on detection evidence, and a further `medium`→`low` cut is
-rejected. glm-5.3 was the only standard seat to detect both seeded defects; gem and nemo
-detected nothing (standing cut candidates for the next iteration).
+rejected. glm-5.3 was the only standard seat to detect both seeded defects on the Flint
+iteration; gem and nemo detected nothing there — but **iteration 2 on a small ansible diff
+reversed the cut question** (see `docs/benchmark.md`): all four seats caught the seeded
+silent-skip (gem at P0), and nemo corroborated a real unseeded sudo-revocation gap with glm.
+Both seats stay. Caveat that survives both iterations: treat gem's *verdict* as uncalibrated
+in both directions; its findings are what count.
 
 ### security-quorum (as committed)
 

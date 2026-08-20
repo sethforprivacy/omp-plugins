@@ -145,9 +145,15 @@ was verdict-only with zero findings — verdict-only never enters consensus clus
 `rev-sec-kimi` stays `max` (equal recall at high, but max was FASTER in both paired runs —
 the downgrade's cost motive inverted); `rev-sec-glm` stays `xhigh` (equal recall at high but
 a 2/9 completeness drop exceeds the ≤1/9 clause); glm pins confirmed with detection evidence.
-New standing questions for the next iteration: `rev-quorum-gem` and `rev-quorum-nemo`
-detected nothing on any defective sample (cut candidates); `rev-sec-grok`'s fail-open miss
-needs a re-test. Do not change any pin without new benchmark data.
+The gem/nemo cut question was settled the same day by **iteration 2** (ansible stack, small
+diff — `docs/benchmark.md`): both seats detected the seeded silent-skip (gem at P0, nemo at
+P2), and nemo corroborated a REAL unseeded defect (the PR's sudo revocation never fires for
+a present user — glm+nemo 2/4). **Both stay active**; the Flint zero-detection pattern was
+depth/stack-specific. Standing watch items: gem's verdict is unreliable in both directions
+(false alarm at .95 on a clean-ish ansible sample; `correct` at 1.0 on defective C# samples)
+— weight gem's findings, not its verdict; nemo missed both fail-open samples across stacks.
+`rev-sec-grok`'s fail-open miss still needs a re-test. Do not change any pin without new
+benchmark data.
 
 ## More panel intel
 
