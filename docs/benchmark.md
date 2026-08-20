@@ -285,3 +285,52 @@ transient infra failures.
 - If the CONTROLS also miss a sample, that sample is discarded as too hard and decides
   nothing.
 - Ties/partial evidence → the seat stays active (incumbent rule).
+
+## Iteration 2 — Results (2026-08-20)
+
+12/12 cells delivered first-try (ansible packet ~2.3 KB; runs 59s–460s). Raw results:
+`~/.omp/quorum-bench/a[012]-*.json`.
+
+**Ground-truth revision discovered mid-scoring:** A0 was not clean. The PR80 diff itself
+carries a real, unseeded defect (call it **AR**): removing `use_sudo`/`use_sudo_nopass` from
+a `user_state: present` user never revokes the existing `/etc/sudoers` NOPASSWD line — the
+repo's own documented revocation path (`tasks/offboard_users.yml` + the users.yaml comments)
+fires only for tombstones carrying `use_sudo: false`, and gha-deploy has none. The standing
+sudo grant PR80 exists to drop survives on every already-provisioned host. AR is present in
+all three samples; it was detected only on the A2 runs.
+
+| seat (pin) | A0 verdict / FPs | A1 `ignore_errors` | A2 undefined `when` | AR sudoers gap |
+|---|---|---|---|---|
+| gem medium | **false alarm**: incorrect @.95, P1 "add state: directory" — empirically refuted (ansible-core 2.21.3 succeeds on an existing dir; advisory only for absent-path hosts) | **miss** | **HIT P0** @1.0, incorrect | miss |
+| glm medium | correct; 2 advisory FPs (run-order doc P2, README P3) | finding **HIT P2** @.85, verdict `correct` (verdict miss) | **HIT P0** @.9, incorrect | **HIT P0** @.9 (A2 run) |
+| grok medium | correct, 0 FP | **HIT P1** @.93, incorrect | **HIT P0** @.95, incorrect | miss |
+| nemo minimal | correct, 0 FP | **miss** | **HIT P2** @.95, incorrect | **HIT P2** @.85 (A2 run) — corroborates glm, 2/4 |
+
+## Iteration 2 — Findings
+
+- **The Flint result did not transfer.** On a small infra diff, every seat detected A2 —
+  including gem (P0 @1.0) and nemo (P2, plus corroborating the real AR defect). The
+  Flint-iteration zero-detection pattern for gem/nemo was depth/stack-specific, not a
+  property of the models.
+- **The panel found a real security gap in merged work** (AR): glm + nemo corroborated it at
+  2/4. Without nemo it is a single-seat finding — exactly the corroboration value the cut
+  rule protects.
+- **grok was the only seat to fully catch A1** (P1, incorrect); glm found the finding but
+  called the overall verdict `correct`; gem and nemo missed it. gem's A1 miss sits oddly
+  against its A0 false alarm on the very same task block — variance, not diligence.
+- **gem produced the sweep's only wrong verdict on a clean-ish sample** (incorrect @.95 on
+  A0 for an empirically-refuted P1). Its flat high confidence remains uncalibrated in both
+  directions.
+- Advisory-grade FPs appeared for the first time (glm's doc/run-order notes) — small-diff
+  reviews invite process nits. Still zero FPs from grok/nemo across both iterations.
+
+## Iteration 2 — Decision (per the pre-committed rule)
+
+Both seats **stay active**: gem detected A2 with a consensus-eligible P0; nemo detected A2
+and corroborated AR. The park condition ("nothing across BOTH iterations' defective
+samples") is not met for either. No seat file changes; no pin changes.
+
+Standing watch items: gem's verdict reliability (false alarm on A0, `correct` on defective
+Flint samples at 1.0) argues for continuing to weight gem's *verdict* lightly even when its
+findings corroborate; nemo remains detection-weak on error-handling classes (missed both
+fail-opens). Next iteration should include a third stack and a severity-calibration sample.
