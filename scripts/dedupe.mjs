@@ -13,14 +13,23 @@
 // Input file shape (permissive extraction):
 //   { findings: [...], overall_correctness?, explanation?, confidence? }
 //   or same nested under result.data / data / output / result.
-//   Each finding: { title, body, priority (0-3), confidence (0-1), file_path, line_start, line_end }.
+//   Each finding: { title, body, priority (0-3), confidence (0-1), file_path, line_start, line_end,
+//                   category? (string), cwe? (string) }.
 //
 // Dedup: cluster findings from different reviewers that describe the same issue. A finding in the
 // same file clusters with an existing cluster when
 //   (a) normalized titles match exactly, or
-//   (b) line ranges overlap AND title-token Jaccard similarity >= 0.5.
-// Canonical member = highest (priority desc, confidence desc, body length desc). Report shows
-// corroboration count (≥2 reviewers) so the session can weight consensus.
+//   (b) line ranges overlap AND title-token Jaccard similarity >= 0.5, or
+//   (c) line ranges are close AND title+body share a distinctive token.
+// Categories, when BOTH findings carry one, gate this:
+//   - categories DIFFER  → cluster only on exact normalized-title match (no cross-category merges
+//     of findings that merely sit near each other).
+//   - categories MATCH   → also cluster on proximity alone (overlap or line gap <= 20), since the
+//     category already establishes the two reviewers are talking about the same class of bug.
+//   - either missing     → rules (a)-(c) exactly as before.
+// Canonical member = highest (priority desc, confidence desc, body length desc); its category and
+// cwe are the ones reported. Report shows corroboration count (≥2 reviewers) so the session can
+// weight consensus.
 
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -98,9 +107,22 @@ function distinctiveTokens(s) {
   );
 }
 
+function normalizeCategory(c) {
+  const s = String(c || "").trim().toLowerCase();
+  return s || null;
+}
+
 function sameIssue(a, b) {
   if (a.fileKey !== b.fileKey) return false;
   if (normalizeTitle(a.title) === normalizeTitle(b.title)) return true;
+  const ca = normalizeCategory(a.category), cb = normalizeCategory(b.category);
+  if (ca && cb) {
+    // Two reviewers that both classified the finding and disagree on the class are not
+    // describing the same issue — only an identical title can override that.
+    if (ca !== cb) return false;
+    // Same class in the same neighborhood is enough on its own; wording need not overlap.
+    if (rangesOverlap(a, b) || lineGap(a, b) <= 20) return true;
+  }
   if (jaccard(tokens(a.title), tokens(b.title)) >= 0.5) return true;
   // Same neighborhood AND a shared distinctive token (identifier/verb) in title+body is
   // strong evidence both reviewers mean the same bug even when wording diverges.
@@ -188,6 +210,8 @@ for (let ri = 0; ri < reviewers.length; ri++) {
       file_path: fileKey,
       line_start: Number.isFinite(f.line_start) ? f.line_start : null,
       line_end: Number.isFinite(f.line_end) ? f.line_end : null,
+      category: typeof f.category === "string" && f.category.trim() ? f.category.trim() : null,
+      cwe: typeof f.cwe === "string" && f.cwe.trim() ? f.cwe.trim() : null,
       fileKey,
     };
     const fileClusters = byFile.get(fileKey) || (byFile.set(fileKey, []).get(fileKey));
@@ -230,10 +254,13 @@ const merged = clusters.map((c) => {
     file_path: canon.file_path,
     line_start: canon.line_start,
     line_end: canon.line_end,
+    // Members may disagree on category/cwe; the canonical member's classification wins.
+    category: canon.category,
+    cwe: canon.cwe,
     reviewers: sources,
     count: sources.length,
     corroborated: sources.length >= 2,
-    members: items.map((it) => ({ source: it.source, priority: it.priority, confidence: it.confidence })),
+    members: items.map((it) => ({ source: it.source, priority: it.priority, confidence: it.confidence, category: it.category, cwe: it.cwe })),
   };
 });
 
@@ -272,7 +299,7 @@ const L = [];
 L.push("# Quorum Review Report");
 L.push("");
 L.push(`- reviewers: ${reviewers.map((r) => r.source).join(", ")}`);
-if (meanConf !== null) L.push(`- mean verdict confidence: ${meanConf.toFixed(2)}`);
+if (meanConf !== null) L.push(`- mean verdict confidence: ${meanConf.toFixed(2)} (unweighted self-reported; not comparable across models)`);
 L.push(`- findings: ${merged.length} unique (${corr} corroborated by ≥2, ${uniq} single-reviewer)`);
 L.push("");
 L.push("## Panel verdict");
@@ -297,11 +324,12 @@ if (merged.length === 0) {
     const corroboration = m.corroborated
       ? ` · **${m.count}/${reviewers.length}** (${m.reviewers.join(", ")})`
       : ` · 1/${reviewers.length} (${m.reviewers.join(", ")})`;
-    L.push(`### ${loc}${range} · ${renderPriority(m.priority)} · conf ${m.confidence.toFixed(2)}${corroboration}`);
+    const cat = m.category ? ` (${m.category})` : "";
+    L.push(`### ${loc}${range} · ${renderPriority(m.priority)}${cat} · conf ${m.confidence.toFixed(2)}${corroboration}`);
     L.push("");
     L.push(`**${m.title}**`);
     L.push("");
-    L.push(m.body);
+    L.push(m.cwe ? `${m.body} (CWE: ${m.cwe})` : m.body);
     L.push("");
   }
 }

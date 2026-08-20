@@ -2,6 +2,12 @@
 // packet.mjs — Assemble the quorum-review context packet (focus + session summary + changed files + diff).
 // Deterministic context capture so every quorum reviewer sees the SAME scope.
 //
+// The packet is sent to N reviewer models, so every byte is paid N times. Budgeting is modeled on
+// PR-Agent's compression strategy: drop the patches that carry the least review signal per byte
+// (delete-only files, lockfiles/generated files), then, if still over budget, drop the largest
+// remaining patches. Focus, summary, the changed-files table and the omission notes are never
+// dropped — reviewers always learn that a file changed, even when its patch is gone.
+//
 // Usage:
 //   packet.mjs --focus <text> [--summary <text>] [options]
 //   packet.mjs --focus <text> [--files a,b,c]     # explicit changed-file list (no VCS needed)
@@ -10,7 +16,11 @@
 //   --focus <text>      Review focus (required). What "done / across the line" means.
 //   --summary <text>    Session summary written by the main agent (what was done this session).
 //   --files <a,b,c>     Explicit changed-file paths (absolute) instead of VCS diff.
-//   --limit <bytes>     Max diff/embed bytes per section (default 100000).
+//   --limit <bytes>     Max bytes per file section — one patch, one embedded file (default
+//                       100000). First line of defense, applied before --budget.
+//   --budget <bytes>    Max total packet bytes (default 300000; 0 disables). Largest per-file
+//                       patches/embeds are dropped (size desc, path asc) until the packet fits.
+//   --all-files         Do not auto-exclude lockfiles/generated files from the embedded diff.
 //   --out <path>        Write markdown packet to <path> (default stdout).
 //   --json              Also write machine-readable metadata to <path>.json (or stdout when no --out).
 //
@@ -26,7 +36,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const args = { limit: 100000, files: [] };
+  const args = { limit: 100000, budget: 300000, allFiles: false, files: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => argv[++i];
@@ -39,6 +49,13 @@ function parseArgs(argv) {
       if (!Number.isFinite(n) || n <= 0) fail(`--limit must be a positive number, got "${raw}"`);
       args.limit = n;
     }
+    else if (a === "--budget") {
+      const raw = val();
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) fail(`--budget must be a non-negative number, got "${raw}"`);
+      args.budget = n;
+    }
+    else if (a === "--all-files") args.allFiles = true;
     else if (a === "--out") args.out = val();
     else if (a === "--json") args.json = true;
     else fail(`unknown arg ${a}`);
@@ -54,16 +71,98 @@ function run(cmd, args) {
   }
 }
 
+// Returns { text, body, note, truncated }: `text` is body+note (what most callers embed),
+// `body`/`note` are split out so the diff splitter can keep the note out of the last patch.
 function truncate(text, limit) {
-  if (text.length <= limit) return { text, truncated: false };
+  if (text.length <= limit) return { text, body: text, note: null, truncated: false };
   const buf = Buffer.from(text, "utf8");
   const sliced = buf.subarray(0, limit);
   // avoid splitting a multi-byte char
   let end = sliced.length;
   while (end > 0 && (sliced[end - 1] & 0xc0) === 0x80) end--;
   const body = sliced.subarray(0, end).toString("utf8");
-  return { text: `${body}\n\n... [truncated: ${buf.length} bytes total, showed ${limit}]`, truncated: true };
+  const note = `... [truncated: ${buf.length} bytes total, showed ${limit}]`;
+  return { text: `${body}\n\n${note}`, body, note, truncated: true };
 }
+
+// --- diff splitting / classification -------------------------------------------------
+
+// Lockfiles: enormous, machine-written, and never the point of a last-pass review.
+const GENERATED_BASENAMES = new Set([
+  "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "Cargo.lock",
+  "go.sum", "composer.lock", "Podfile.lock", "Gemfile.lock", "pubspec.lock",
+  "poetry.lock", "uv.lock",
+]);
+const GENERATED_DIRS = new Set(["dist", "build", "node_modules"]);
+
+function isGeneratedPath(p) {
+  const base = basename(p);
+  if (GENERATED_BASENAMES.has(base)) return true;
+  if (/\.min\.js$/.test(base) || /\.min\.css$/.test(base)) return true;
+  if (/\.map$/.test(base)) return true;
+  if (/\.pb\.go$/.test(base) || /_pb2\.py$/.test(base)) return true;
+  if (/\.generated\./.test(base)) return true;
+  const segs = p.split("/");
+  // dist/** build/** node_modules/** — a *directory* segment, not a file of that name.
+  return segs.slice(0, -1).some((s) => GENERATED_DIRS.has(s));
+}
+
+function patchPath(chunk) {
+  const first = chunk.split("\n", 1)[0];
+  const m = first.match(/^diff --git "?a\/(.*?)"? "?b\/(.*?)"?$/);
+  if (m) return m[2] || m[1];
+  return first.replace(/^diff --git\s*/, "").trim() || "(unknown path)";
+}
+
+// A patch is delete-only ONLY when the file itself was deleted (git and jj both emit the
+// marker). A deletion-only EDIT to a living file (e.g. removing a validation check) is
+// review-critical and must stay in the packet — never infer deletion from hunk shape.
+function isDeleteOnly(chunk) {
+  return /^deleted file mode /m.test(chunk);
+}
+
+// Split a unified (git-format) diff into per-file patches, preserving original order.
+// Anything before the first `diff --git` header is returned as `preamble`.
+function splitDiff(diff) {
+  if (!diff) return { preamble: "", parts: [] };
+  const chunks = diff.split(/^(?=diff --git )/m);
+  let preamble = "";
+  const parts = [];
+  for (const chunk of chunks) {
+    if (!chunk) continue;
+    if (!chunk.startsWith("diff --git ")) { preamble += chunk; continue; }
+    const text = chunk.endsWith("\n") ? chunk : chunk + "\n";
+    parts.push({ path: patchPath(chunk), kind: "patch", text, bytes: Buffer.byteLength(text), dropped: false });
+  }
+  return { preamble, parts };
+}
+
+// Classify per-file patches into { keep, deletedOnly, excluded }. Delete-only and
+// generated-file patches never reach the budget pool — they are cheap notes instead.
+// Surviving patches are truncated to `limit` INDIVIDUALLY: truncating the concatenated diff
+// would let one huge patch starve every file after it, and per-file is how `--limit` already
+// applies to embedded untracked/`--files` contents.
+function classifyPatches(parts, allFiles, limit) {
+  const keep = [];
+  const deletedOnly = [];
+  const excluded = [];
+  let truncated = false;
+  for (const p of parts) {
+    if (isDeleteOnly(p.text)) { deletedOnly.push(p.path); continue; }
+    if (!allFiles && isGeneratedPath(p.path)) { excluded.push({ path: p.path, bytes: p.bytes }); continue; }
+    const shown = truncate(p.text, limit);
+    truncated = truncated || shown.truncated;
+    const text = shown.truncated ? `${shown.body.replace(/\n$/, "")}\n${shown.note}\n` : p.text;
+    keep.push({ ...p, text, bytes: Buffer.byteLength(text) });
+  }
+  return { keep, deletedOnly, excluded, truncated };
+}
+
+function budgetNote(path, bytes) {
+  return `\`${path}\` — patch/content omitted to fit packet budget (${bytes} bytes); read the file directly.`;
+}
+
+// --- modes ---------------------------------------------------------------------------
 
 function detectVcs() {
   if (run("git", ["rev-parse", "--git-dir"])) return "git";
@@ -71,7 +170,7 @@ function detectVcs() {
   return "none";
 }
 
-function gitMode(limit) {
+function gitMode(limit, allFiles) {
   const cwd = process.cwd();
   const files = [];
   const status = run("git", ["status", "--short", "-uall"]) || "";
@@ -82,11 +181,12 @@ function gitMode(limit) {
   const hasHead = !!run("git", ["rev-parse", "--verify", "HEAD"]);
   let diff = hasHead ? run("git", ["diff", "HEAD"]) : run("git", ["diff"]);
   if (diff === null) diff = "";
-  const d = truncate(diff, limit);
+  const { preamble, parts } = splitDiff(diff);
+  const { keep, deletedOnly, excluded, truncated } = classifyPatches(parts, allFiles, limit);
   const untracked = files.filter((f) => f.status.includes("?")).map((f) => f.path);
   // Newly created files are usually the point of a last-pass review but never appear in
   // `git diff HEAD` — embed their contents so the panel can review them too.
-  const untrackedSection = [];
+  const embedParts = [];
   let untrackedTruncated = false;
   for (const u of untracked) {
     let st;
@@ -99,60 +199,175 @@ function gitMode(limit) {
     const content = readFileSync(u, "utf8");
     const shown = truncate(content, limit);
     untrackedTruncated = untrackedTruncated || shown.truncated;
-    untrackedSection.push(
-      `### ${resolve(u)}\n\n\`\`\`\n${shown.text}\n\`\`\``
-    );
+    const abs = resolve(u);
+    const text = `### ${abs}\n\n\`\`\`\n${shown.text}\n\`\`\``;
+    embedParts.push({ path: abs, kind: "embed", text, bytes: Buffer.byteLength(text), dropped: false });
   }
   return {
     vcs: "git", cwd, files, untracked,
-    untrackedSection: untrackedSection.join("\n\n"),
-    untrackedTruncated,
-    diff: d.text, diffTruncated: d.truncated,
+    diffPreamble: preamble, diffParts: keep, deletedOnly, excluded,
+    embedParts, untrackedTruncated,
+    diffTruncated: truncated,
   };
 }
 
-function jjMode(limit) {
+function jjMode(limit, allFiles) {
   const cwd = process.cwd();
   const status = run("jj", ["status"]) || "";
   const rawDiff = run("jj", ["diff", "--git"]) || "";
-  const d = truncate(rawDiff, limit);
-  // Files touched (filenames only, dedup)
-  const files = [...new Set(
-    (run("jj", ["diff", "--name-only"]) || "").split("\n").filter(Boolean).map((p) => ({ path: p, status: "M" })),
-    (f) => f && f.path
-  )];
-  return { vcs: "jj", cwd, files: files ?? [], untracked: [], diff: d.text, diffTruncated: d.truncated, note: status.trim() || undefined };
+  const { preamble, parts } = splitDiff(rawDiff);
+  const { keep, deletedOnly, excluded, truncated } = classifyPatches(parts, allFiles, limit);
+  // Files touched (filenames only, deduped by path — a Set of objects would never collapse).
+  const seen = new Set();
+  const files = [];
+  for (const p of (run("jj", ["diff", "--name-only"]) || "").split("\n").filter(Boolean)) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    files.push({ path: p, status: "M" });
+  }
+  return {
+    vcs: "jj", cwd, files, untracked: [],
+    diffPreamble: preamble, diffParts: keep, deletedOnly, excluded,
+    embedParts: [], untrackedTruncated: false,
+    diffTruncated: truncated,
+    note: status.trim() || undefined,
+  };
 }
 
 function filesMode(paths, limit) {
-  const sections = [];
+  const embedParts = [];
   const meta = [];
   let totalBytes = 0;
   let truncatedAny = false;
   for (const p of paths) {
     if (!existsSync(p)) {
       meta.push({ path: p, status: "MISSING" });
-      sections.push(`### ${p}\n\n(not found on disk)`);
+      const text = `### ${p}\n\n(not found on disk)`;
+      embedParts.push({ path: p, kind: "embed", text, bytes: Buffer.byteLength(text), dropped: false, droppable: false });
       continue;
     }
     const content = readFileSync(p, "utf8");
-    totalBytes += Buffer.byteLength(content);
+    const bytes = Buffer.byteLength(content);
+    totalBytes += bytes;
     const shown = truncate(content, limit);
     truncatedAny = truncatedAny || shown.truncated;
     const rel = p.startsWith(process.cwd() + "/") ? p.slice(process.cwd().length + 1) : p;
-    sections.push(`### ${p}${rel !== p ? ` (${rel})` : ""} — ${shown.truncated ? `truncated at ${limit} bytes` : Buffer.byteLength(content) + " bytes"}\n\n\`\`\`\n${shown.text}\n\`\`\``);
-    meta.push({ path: p, bytes: Buffer.byteLength(content), truncated: shown.truncated });
+    const text = `### ${p}${rel !== p ? ` (${rel})` : ""} — ${shown.truncated ? `truncated at ${limit} bytes` : bytes + " bytes"}\n\n\`\`\`\n${shown.text}\n\`\`\``;
+    embedParts.push({ path: p, kind: "embed", text, bytes: Buffer.byteLength(text), dropped: false });
+    meta.push({ path: p, bytes, truncated: shown.truncated });
   }
   return {
     vcs: "files",
     cwd: process.cwd(),
     files: paths.map((p) => ({ path: p, status: "CHANGED" })),
     untracked: [],
-    diff: sections.join("\n\n"),
+    // Explicitly requested files are never auto-excluded; only the budget can drop them.
+    diffPreamble: "", diffParts: [], deletedOnly: [], excluded: [],
+    embedParts, untrackedTruncated: false,
     diffTruncated: truncatedAny,
     totalBytes,
   };
 }
+
+// --- assembly ------------------------------------------------------------------------
+
+function renderEmbeds(parts) {
+  return parts
+    .map((p) => (p.dropped ? budgetNote(p.path, p.bytes) : p.text))
+    .join("\n\n");
+}
+
+function assemble(args, info) {
+  const md = [
+    "# Review Packet",
+    "",
+    "- generated: " + info.generated,
+    `- cwd: \`${info.cwd}\``,
+    `- vcs: ${info.vcs}`,
+    "",
+    "## Focus",
+    "",
+    args.focus.trim(),
+    "",
+  ];
+  if (args.summary) {
+    md.push("## Session summary", "", args.summary.trim(), "");
+  }
+  md.push(
+    "## Changed files",
+    "",
+    "| status | path |",
+    "|--------|------|",
+    ...(info.files.length
+      ? info.files.map((f) => `| ${f.status} | \`${f.path}\` |`)
+      : ["| - | (no changes detected) |"]),
+    ""
+  );
+  if (info.vcs === "files") {
+    // Each embedded file already carries its own code fence; an outer diff fence
+    // would close on the first inner fence and leak the rest out of the block.
+    md.push("## File contents", "", renderEmbeds(info.embedParts), "");
+  } else {
+    const kept = info.diffParts.filter((p) => !p.dropped);
+    const body = (info.diffPreamble || "") + kept.map((p) => p.text).join("");
+    md.push("## Diff / file contents", "", "```diff", body.replace(/\n$/, ""), "```", "");
+    if (info.deletedOnly.length) {
+      md.push(`Deleted files (patch omitted): ${info.deletedOnly.map((p) => `\`${p}\``).join(", ")}`, "");
+    }
+    if (info.excluded.length) {
+      md.push(
+        "Generated files excluded from the diff (still listed in the table above):",
+        "",
+        ...info.excluded.map((e) => `- \`${e.path}\` — lockfile/generated, patch omitted (${e.bytes} bytes)`),
+        ""
+      );
+    }
+    const droppedPatches = info.diffParts.filter((p) => p.dropped);
+    if (droppedPatches.length) {
+      md.push(
+        "Patches omitted to fit the packet budget (still listed in the table above):",
+        "",
+        ...droppedPatches.map((p) => `- ${budgetNote(p.path, p.bytes)}`),
+        ""
+      );
+    }
+    if (info.untracked && info.untracked.length) {
+      md.push(
+        "",
+        "## Untracked files (new, embedded below)",
+        "",
+        `New files not present in any diff, embedded below — reviewers should NOT re-read these from disk unless a file is marked truncated or omitted${info.untrackedTruncated ? ` (files over ${args.limit} bytes are truncated)` : ""}:`,
+        "",
+        info.embedParts.length
+          ? renderEmbeds(info.embedParts)
+          : info.untracked.map((u) => `- \`${u}\``).join("\n"),
+        ""
+      );
+    }
+  }
+  if (info.note) md.push("> " + info.note, "");
+  return md.join("\n");
+}
+
+// Drop the largest per-file patches/embeds until the packet fits the budget. Diff patches and
+// embedded untracked files compete in one pool. Deterministic: size desc, then path asc.
+function applyBudget(args, info) {
+  let packet = assemble(args, info);
+  let budgetDropped = 0;
+  if (!args.budget) return { packet, budgetDropped };
+  const pool = [...info.diffParts, ...info.embedParts].filter((p) => p.droppable !== false);
+  while (Buffer.byteLength(packet) > args.budget) {
+    const live = pool.filter((p) => !p.dropped);
+    if (live.length === 0) break;
+    live.sort((a, b) => (b.bytes - a.bytes) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    live[0].dropped = true;
+    budgetDropped++;
+    packet = assemble(args, info);
+  }
+  return { packet, budgetDropped };
+}
+
+// --- main ----------------------------------------------------------------------------
 
 const args = parseArgs(process.argv.slice(2));
 if (!args.focus) fail("--focus <text> is required");
@@ -160,62 +375,21 @@ if (!args.focus) fail("--focus <text> is required");
 const vcs = args.files.length > 0 ? "files" : detectVcs();
 let info;
 if (vcs === "files") info = filesMode(args.files, args.limit);
-else if (vcs === "git") info = gitMode(args.limit);
-else if (vcs === "jj") info = jjMode(args.limit);
+else if (vcs === "git") info = gitMode(args.limit, args.allFiles);
+else if (vcs === "jj") info = jjMode(args.limit, args.allFiles);
 else fail("no VCS detected and --files not given; pass --files <paths> or run from a git/jj repo");
 
-const md = [
-  "# Review Packet",
-  "",
-  "- generated: " + new Date().toISOString(),
-  `- cwd: \`${info.cwd}\``,
-  `- vcs: ${info.vcs}`,
-  "",
-  "## Focus",
-  "",
-  args.focus.trim(),
-  "",
-];
-if (args.summary) {
-  md.push("## Session summary", "", args.summary.trim(), "");
-}
-md.push(
-  "## Changed files",
-  "",
-  "| status | path |",
-  "|--------|------|",
-  ...(info.files.length
-    ? info.files.map((f) => `| ${f.status} | \`${f.path}\` |`)
-    : ["| - | (no changes detected) |"]),
-  ""
-);
-if (info.vcs === "files") {
-  // Each embedded file already carries its own code fence; an outer diff fence
-  // would close on the first inner fence and leak the rest out of the block.
-  md.push("## File contents", "", info.diff, "");
-} else {
-  md.push("## Diff / file contents", "", "```diff", info.diff, "```", "");
-  if (info.untracked && info.untracked.length) {
-    md.push(
-      "",
-      "## Untracked files (new, embedded below)",
-      "",
-      `New files not present in any diff${info.untrackedTruncated ? ` (each truncated at ${args.limit} bytes)` : ""}:`,
-      "",
-      info.untrackedSection || info.untracked.map((u) => `- \`${u}\``).join("\n"),
-      ""
-    );
-  }
-}
-if (info.note) md.push("> " + info.note, "");
+info.generated = new Date().toISOString();
+const { packet, budgetDropped } = applyBudget(args, info);
+const totalBytes = Buffer.byteLength(packet);
+const overBudget = args.budget > 0 && totalBytes > args.budget;
 
-const packet = md.join("\n");
 if (args.out) {
   const { writeFileSync } = await import("node:fs");
   writeFileSync(args.out, packet);
   if (args.json) {
     const jsonInfo = {
-      generated: new Date().toISOString(),
+      generated: info.generated,
       cwd: info.cwd,
       vcs: info.vcs,
       focus: args.focus.trim(),
@@ -223,6 +397,14 @@ if (args.out) {
       files: info.files,
       untracked: info.untracked,
       diffTruncated: info.diffTruncated,
+      totalBytes,
+      budget: args.budget,
+      overBudget,
+      omitted: {
+        deletedOnly: info.deletedOnly.map((p) => p),
+        excluded: info.excluded,
+        budgetDropped: [...info.diffParts, ...info.embedParts].filter((p) => p.dropped).map((p) => ({ path: p.path, bytes: p.bytes })),
+      },
       packetPath: args.out,
     };
     writeFileSync(args.out + ".json", JSON.stringify(jsonInfo, null, 2));
@@ -232,9 +414,21 @@ if (args.out) {
   if (args.json) {
     process.stdout.write("\n\n=== packet.json ===\n");
     process.stdout.write(JSON.stringify({
-      generated: new Date().toISOString(), cwd: info.cwd, vcs: info.vcs, files: info.files,
+      generated: info.generated, cwd: info.cwd, vcs: info.vcs, files: info.files,
       untracked: info.untracked, diffTruncated: info.diffTruncated,
+      totalBytes, budget: args.budget, overBudget,
+      omitted: {
+        deletedOnly: info.deletedOnly,
+        excluded: info.excluded,
+        budgetDropped: [...info.diffParts, ...info.embedParts].filter((p) => p.dropped).map((p) => ({ path: p.path, bytes: p.bytes })),
+      },
     }, null, 2));
   }
 }
-console.error(`packet: wrote ${info.files.length} changed file(s); diff ${info.diffTruncated ? "truncated" : "complete"} (${basename(args.out || "(stdout)")})`);
+console.error(
+  `packet: wrote ${info.files.length} changed file(s), ${totalBytes} bytes total` +
+  ` (budget ${args.budget || "off"}); diff ${info.diffTruncated ? "truncated" : "complete"};` +
+  ` omitted patches: ${info.deletedOnly.length} delete-only, ${info.excluded.length} generated,` +
+  ` ${budgetDropped} over-budget (${basename(args.out || "(stdout)")})` +
+  (overBudget ? `\npacket: WARNING — packet is ${totalBytes} bytes, still over the ${args.budget}-byte budget after dropping every droppable patch; focus/summary/changed-files table alone exceed it` : "")
+);
