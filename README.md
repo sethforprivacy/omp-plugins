@@ -16,10 +16,14 @@ Two skills share one protocol and one installer:
 
 Last verified:
 
+- 2026-08-20 pm (first seeded-defect benchmark run — 39 delivered results, decisions applied
+  per [`docs/benchmark.md`](docs/benchmark.md): all pins stand on detection evidence;
+  `rev-sec-gem` parked (0 detections in 8 defective-sample runs incl. pooled passes);
+  `rev-sec-grok` added on grok-4.6 at `medium` (caught the txid defect on both samples at P1,
+  missed the one fail-open sample — re-test flagged). Every active seat route-checked clean
+  with the new string-`cwe` + `category` schemas)
 - 2026-08-20 (protocol v2: hardened seat outputs, category/cwe fields, security exclusions,
-  packet budgeting, arbitration round, targeted fix-verification — mechanical smoke-tests pass;
-  **NOT yet route-checked against live models**; run `./install.sh` then route-check each seat
-  before relying on it)
+  packet budgeting, arbitration round, targeted fix-verification — mechanical smoke-tests pass)
 - 2026-08-16 (bundle restructure; both panels install clean; nemotron-3.5-lightning
   added as `rev-quorum-nemo` and route-checked clean; kimi-k3 structured findings re-confirmed)
 
@@ -154,8 +158,12 @@ one-finding-per-yield output contract, a prompt-injection guard line, and an opt
 Every active seat pins `thinking-level:` in its frontmatter — calibrated 2026-08-18 against
 one controlled diff (Flint PR16), full evidence in [`docs/thinking-levels.md`](docs/thinking-levels.md).
 Grok was downgraded from its upstream `high` to `medium`: measured `xhigh`/`high` add 2.5–13×
-runtime for ≤1/9 completeness, and the recommended `xhigh` boost did not reproduce — re-test
-with a buggy sample before re-raising it.
+runtime for ≤1/9 completeness, and the recommended `xhigh` boost did not reproduce. The buggy-
+sample re-test happened 2026-08-20 ([`docs/benchmark.md`](docs/benchmark.md)): `medium` caught
+the seeded fail-open with a structured P1 finding where `low` was verdict-only (zero findings)
+— the `medium` pin now rests on detection evidence, and a further `medium`→`low` cut is
+rejected. glm-5.3 was the only standard seat to detect both seeded defects; gem and nemo
+detected nothing (standing cut candidates for the next iteration).
 
 ### security-quorum (as committed)
 
@@ -163,9 +171,9 @@ with a buggy sample before re-raising it.
 |---|---|---|
 | `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `cwe` converted array→comma-string 2026-08-20. `thinking-level: max` |
 | `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | Activated 2026-08-19 once glm-5.3 published on OpenRouter (seat was parked while it wasn't). `cwe` restored 2026-08-20 as a comma-string (the *array* form was what 402'd z-ai — history, see below). `thinking-level: xhigh` (deep detection is the security lever: caught the one real defect on the Flint benchmark at full severity; low-effort runs were detection coin-flips) |
-| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Route-checked clean 2026-08-16. `cwe` restored 2026-08-20 as a comma-string (the *array* form was what 400'd the Gemini provider — history, see below). `thinking-level: high` (upgraded from default medium — at `low` it was 2/9-coverage in 10 s, too shallow for a security seat) |
+| `rev-sec-grok` | `openrouter/x-ai/grok-4.6` | Added 2026-08-20 after the seeded-defect benchmark: caught the real txid defect on both defective samples (P1, zero FPs, ~5 min runs) under the security prompt; missed the one fail-open sample (re-test flagged in `docs/benchmark.md`). Route-checked clean same day. `thinking-level: medium` |
 
-All three security seats also carry, as of 2026-08-20 (**not yet route-checked**): the
+All three security seats also carry, as of 2026-08-20 (route-checked clean same day): the
 hardened one-finding-per-yield output contract, a prompt-injection guard line, an
 `<exclusions>` noise-suppression block (DoS/rate-limit without a concrete consequence, generic
 input validation without a proven source→sink path, non-auth open redirects, theoretical timing
@@ -179,6 +187,7 @@ clusters on.
 |---|---|---|
 | `rev-quorum-deepseek` | `openrouter/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
 | `rev-quorum-qwen` | `openrouter/qwen/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
+| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Cut by the 2026-08-20 benchmark: 0 detections in 8 defective-sample runs (both levels + 3-run pooled passes) while voting `correct` at .95–1.0 confidence on defective code — actively harmful to the panel verdict. Routes fine; parked on merit, not policy |
 
 **Enable / change a model:**
 

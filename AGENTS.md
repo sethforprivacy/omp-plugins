@@ -94,11 +94,15 @@ appeared, so the OMP-native copies are the only ones.
   2026-08-16; cheap, all live endpoints ≥256K ctx fit packets).
 - security-quorum active: `rev-sec-kimi` = kimi-k3 (route-checked clean 2026-08-14;
   structured-findings behavior re-confirmed 2026-08-16 — was historically verdict-only),
-  `rev-sec-gem` = gemini-3.7-flash (route-checked clean 2026-08-16), `rev-sec-glm` = glm-5.3
-  (route-checked clean 2026-08-19). All three carry `cwe` again as of 2026-08-20 in the
-  comma-separated **string** form (see the cwe gotcha below) — **not yet route-checked in that
-  form**.
-- All seats (both families) carry, as of 2026-08-20 and pending live route-check: the hardened
+  `rev-sec-glm` = glm-5.3 (route-checked clean 2026-08-19), `rev-sec-grok` = grok-4.6
+  (**added 2026-08-20** off the seeded-defect benchmark: txid defect caught on both defective
+  samples at P1 with zero FPs; fail-open sample missed — re-test flagged in
+  `docs/benchmark.md`). `rev-sec-gem` = gemini-3.7-flash is **parked 2026-08-20 on merit**:
+  0 detections in 8 defective-sample runs (both levels + 3-run pooled passes) while voting
+  `correct` at .95–1.0 confidence on defective code. It routes fine — do not re-enable it
+  without new detection evidence. All active seats carry `cwe` in the comma-separated
+  **string** form (see the cwe gotcha below), route-checked clean 2026-08-20.
+- All seats (both families) carry, as of 2026-08-20 (route-checked clean same day): the hardened
   one-finding-per-yield output contract (propagated from `rev-sec-kimi`), a prompt-injection
   guard line in the intro, and an optional `category` finding field. Security seats additionally
   carry an `<exclusions>` noise-suppression block (no DoS/rate-limit/resource-exhaustion
@@ -134,12 +138,16 @@ Effort measures (tool calls, thinking-token volume, wall time) rise monotonicall
 on every model; completeness does not always follow. See `docs/thinking-levels.md` for the
 per-level evidence table before changing any pinned level.
 
-Open level questions, **pending the seeded-defect detection benchmark in
-`docs/benchmark.md`** (the thinking-level sweeps used a clean sample, so they measured
-explanation completeness, not detection recall): `rev-quorum-grok` medium→**low** (its coverage
-barely moved 4→5→4→5 across low→xhigh while tool calls went 20→92) and `rev-sec-kimi`
-max→**high** (6/9 at high vs 7/9 at max, at half the wall time). Neither is applied — the seats
-still pin `medium` and `max`. Do not change them without detection data.
+The seeded-defect detection benchmark ran 2026-08-20 (`docs/benchmark.md`, Results section)
+and RESOLVED the open level questions — **all pins stand, now on detection evidence**:
+`rev-quorum-grok` stays `medium` (medium produced a structured P1 fail-open finding where low
+was verdict-only with zero findings — verdict-only never enters consensus clustering);
+`rev-sec-kimi` stays `max` (equal recall at high, but max was FASTER in both paired runs —
+the downgrade's cost motive inverted); `rev-sec-glm` stays `xhigh` (equal recall at high but
+a 2/9 completeness drop exceeds the ≤1/9 clause); glm pins confirmed with detection evidence.
+New standing questions for the next iteration: `rev-quorum-gem` and `rev-quorum-nemo`
+detected nothing on any defective sample (cut candidates); `rev-sec-grok`'s fail-open miss
+needs a re-test. Do not change any pin without new benchmark data.
 
 ## More panel intel
 

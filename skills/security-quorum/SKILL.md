@@ -33,11 +33,13 @@ Changing the panel = editing those files only:
 - **Enable a parked seat:** remove `disable: true`, route-check it (§4), then confirm the
   panel with `panel.mjs --prefix rev-sec-`.
 
-Current seat note: `rev-sec-glm` is pinned to `z-ai/glm-5.3` and active since 2026-08-19
-(glm-5.3 is published on OpenRouter; the previous "parked until published" note is stale).
-`thinking-level: xhigh` (calibrated on the Flint benchmark 2026-08-19).
+Current seat note (2026-08-20): the active panel is `rev-sec-kimi` (kimi-k3, `max`),
+`rev-sec-glm` (glm-5.3, `xhigh`), and `rev-sec-grok` (grok-4.6, `medium`, added off the
+seeded-defect benchmark — see `docs/benchmark.md`). `rev-sec-gem` is **parked on merit**
+(0 detections across 8 defective-sample benchmark runs while voting `correct` at high
+confidence) — it routes fine; do not re-enable without new detection evidence.
 
-Seat prompt state as of 2026-08-20 (pending live route-check):
+Seat prompt state as of 2026-08-20 (route-checked clean same day):
 
 - **`cwe` is back on all three security seats**, as a comma-separated **string**
   (`"CWE-20, CWE-345"`). The old *untyped-array* form is what broke Gemini (400, empty body)

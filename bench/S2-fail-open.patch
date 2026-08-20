@@ -1,0 +1,29 @@
+diff --git a/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs b/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs
+index 2d02923..856f823 100644
+--- a/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs
++++ b/BTCPayServer.Plugins.Flint/Services/SparkSweepEngine.cs
+@@ -1935,12 +1935,22 @@ public sealed class SparkSweepEngine
+             ? "Spark reported this cooperative exit as failed. Nothing arrived at the destination."
+             : null;
+ 
+-        if (await _records
++        bool resolved;
++        try
++        {
++            resolved = await _records
+                 .TryResolveAsync(
+                     storeId, record.IdempotencyKey, allowedFrom,
+                     new SweepResolution(status, payment.FeeSats, payment.TxId, error, now),
+                     cancellationToken)
+-                .ConfigureAwait(false))
++                .ConfigureAwait(false);
++        }
++        catch (Exception)
++        {
++            resolved = true;
++        }
++
++        if (resolved)
+         {
+             _logger.LogInformation(
+                 "Store {StoreId}: sweep {IdempotencyKey} resolved as {Status} "

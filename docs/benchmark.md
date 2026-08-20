@@ -1,7 +1,10 @@
 # Seeded-defect detection benchmark (2026-08-20)
 
-**Status: protocol defined, runs NOT executed.** Nothing below is a result. No numbers in
-this document are measurements.
+**Status: first full run EXECUTED 2026-08-20** (33 planned cells + 6 trial cells + 3 retries
+= 39 delivered structured results; results and applied decisions in the
+[Results section](#results-2026-08-20) at the end).
+The protocol below is unchanged from the pre-run commit — decision rules were written and
+committed before any run, and were applied as written.
 
 ## Purpose
 
@@ -141,3 +144,97 @@ Written before any run, to block post-hoc rationalization:
 - **Three defects is a smoke test, not a proof.** It can show a level is *worse*; it cannot
   show a level is *safe*. Treat an approved downgrade as provisional and revisit when a real
   review misses something.
+
+---
+
+# Results (2026-08-20)
+
+First full run. 33 planned cells + 3 retries + 6 trial cells (grok security candidate, gem
+pooled passes). Packets: standard ~33 KB, security ~33 KB, `--budget 300000` (nothing
+dropped). All spawns solo via `omp -p` from the scratch worktree; raw results in
+`~/.omp/quorum-bench/`. Wall times below are end-to-end per spawn (orchestrating session
+included) — treat as relative, not absolute.
+
+## Standard panel (S0 clean / S2 fail-open / S3 silent drop)
+
+| seat×level | S0 verdict (FPs) | S2 detection | S3 detection | times |
+|---|---|---|---|---|
+| gem medium (pin) | correct (0) | **miss** (correct @1.0) | **miss** (correct @1.0) | 121s/43s/39s |
+| gem low | correct (0) | miss | miss | 85s/78s/52s |
+| glm medium (pin) | correct (0) | **HIT P2**, incorrect @.75 | **HIT P2** (verdict correct) | 239s/172s/286s |
+| glm low | correct (0) | HIT P2, incorrect @.8 | HIT but **P3** (severity drop) | 217s/396s/200s |
+| grok medium (pin) | correct (0)† | **HIT P1**, incorrect @.9† | miss | 236s†/247s†/989s |
+| grok low | correct (0) | **verdict-only**: incorrect @1.0, **zero findings** | miss | 71s/169s/88s |
+| nemo minimal (pin) | correct (0) | miss (correct @1.0) | miss | 385s/302s/148s |
+
+† retry after transient x-ai failures (capacity 429-class error on S0; 25-min timeout on S2).
+
+## Security panel (S0/S1 clean tree — one run scored two ways / S2 fail-open)
+
+S1 detection = the real txid-validation defect; S2 has two true defects (the seeded
+fail-open + the same txid defect).
+
+| seat×level | S1 txid | S2 fail-open | S2 txid | FPs (all runs) | times |
+|---|---|---|---|---|---|
+| kimi max (pin) | **HIT P1** @.7‡ | **HIT P2** @.85 | HIT P1 @.85 | 0 | 479s‡/970s |
+| kimi high | HIT P2 @.62 | HIT P2 @.9 | HIT P1 @.75 | 0 | 1394s/1436s |
+| glm xhigh (pin) | **HIT P2** @.85 | **HIT P2** @.65 | HIT P1 @.75 | 0 (one dup) | 299s/421s |
+| glm high | HIT P2 @.8 | HIT P2 @.6 | HIT P2 @.75 | 0 | 244s/264s |
+| gem high (pin) | **miss** (correct @.95) | **miss** (correct @.95) | miss | 0 | 123s/215s |
+| gem medium | miss | miss | miss | 0 | 57s/72s |
+| gem high ×2 extra pooled passes/sample | miss ×2 | miss ×2 | miss ×2 | 0 | 198–384s |
+| **grok medium (trial seat)** | **HIT P1** @.84 | **miss** | HIT P1 @.82 | 0 | 310s/302s |
+
+‡ kimi-max's first S1 spawn died on a runtime `exit 1` mid-review (12m in); the one protocol
+retry delivered. A second apparent "hang" of the retry was a harness bug, not the model: the
+retry script's `omp -p` inherited a heredoc-contaminated stdin and hung at OMP startup
+(`readPipedInput`) before any model ran — fixed by `</dev/null` on every scripted spawn. That
+attempt does not count against the seat's retry budget.
+
+## Findings
+
+- **Zero false positives in all 39 delivered runs** — first measured evidence
+  that the criteria + the new `<exclusions>` blocks hold noise at zero on this codebase.
+- **glm-5.3 is the only standard seat that detects.** It caught both seeded defects at both
+  levels; `medium` preserved fair severity where `low` dropped S3 to P3. The `medium` pin now
+  has detection evidence, not just completeness evidence.
+- **grok-4.6 `medium` vs `low` is a real detection gap**: medium produced a structured P1
+  fail-open finding; low produced an `incorrect` verdict with an **empty findings list** —
+  which never enters consensus clustering. Verdict-only detection is not detection.
+- **Both seeded severities need revision.** S3's fair severity is **P2–P3, not P1–P2**:
+  nothing produces the seeded `Expired` variant yet, so "sweep stuck forever" is latent —
+  glm-low's "unproduced and unhandled" P3 was arguably the most honest read, and the
+  `correct` overall verdicts on S3 are defensible rather than misses.
+- **gem detects nothing, systematically.** 0 findings across 14 defective-sample runs
+  (both panels, both levels, plus a 3-run pool per security sample), while voting `correct`
+  at 0.95–1.0 confidence on genuinely defective code. The pooled-cheap-runs hypothesis
+  (Aikido) was tested and refuted for this model: the misses are not variance.
+- **kimi `max` beat `high` on wall time in every paired run** (479s vs 1394s; 970s vs 1436s)
+  with equal-or-better recall and severity — the max→high downgrade's cost motive is
+  inverted on current provider routing.
+- **grok-4.6 under the security prompt is a different animal than under the standard
+  prompt**: as a trial security seat it caught the txid defect on both samples (P1, 0 FPs,
+  ~5 min runs) but missed the fail-open; as a standard seat, the reverse. n=1 each — the
+  detection-criteria framing plausibly steers what it hunts.
+
+## Decisions applied (2026-08-20, per the pre-committed rules)
+
+| Question | Rule outcome | Applied |
+|---|---|---|
+| grok `medium`→`low` | REJECTED — unequal recall (low was verdict-only on S2) | `medium` stands |
+| kimi `max`→`high` | REJECTED — equal recall but no cost win (max faster in both pairs) | `max` stands |
+| rev-sec-gem cut | CUT — 0 detections in 8 defective-sample runs incl. 3-run pools; corroboration never formed; actively wrong verdicts at .95+ | parked (`disable: true`) |
+| glm-sec `xhigh`→`high` (implicit one-down cell) | REJECTED — equal recall, but 2/9 completeness drop (2026-08-19 data) exceeds the ≤1/9 clause | `xhigh` stands |
+| glm-std / glm-sec re-validation | CONFIRMED with detection evidence | pins stand |
+| **rev-sec-grok** (new seat, not in the pre-committed table) | Judgment call, not rule-driven: met half the stated bar (txid 2/2 at P1, fail-open 0/1) but is strictly superior to the seat it replaces and restores the 3-seat/3-vendor panel | **added, active, `medium`** — re-test the fail-open miss next iteration |
+
+## New open questions (next iteration)
+
+- **rev-quorum-gem earns nothing on this benchmark** (0 detections at both levels, wrong
+  verdicts at 1.0 confidence on defective samples). It satisfies the cut rule's necessary
+  condition; kept for now as a ~free 4th vendor vote, but it is the standing cut candidate.
+- **rev-quorum-nemo detected nothing** (S2/S3 both missed at its only level). Same question.
+- **rev-sec-grok's fail-open miss**: one sample; re-run S2 (and a new fail-open variant)
+  before trusting it on that class. Consider testing grok-sec at `high`.
+- S3 sample should either gain a producer (so the drop is live, severity P1–P2 honest) or
+  its ground truth stays P2–P3.
