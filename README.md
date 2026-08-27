@@ -149,10 +149,10 @@ it runs. A seat is active unless it carries `disable: true`.
 
 | Seat | Model | Notes |
 |---|---|---|
-| `rev-quorum-gem` | `openrouter/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13. `thinking-level: medium` |
-| `rev-quorum-glm` | `openrouter/z-ai/glm-5.3` | Swapped to 5.3 2026-08-19 (now published; route-checked clean). Reliable structured findings, deep reviewer. `thinking-level: medium` (downgraded from the glm-5.2-era `high` — at 5.3, medium matches high's completeness at ~1/5 the wall time) |
-| `rev-quorum-grok` | `openrouter/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed. `thinking-level: medium` |
-| `rev-quorum-nemo` | `openrouter/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets. `thinking-level: minimal` |
+| `rev-quorum-gem` | `nanogpt/google/gemini-3.7-flash` | Fast seat; route-checked clean 2026-08-13. `thinking-level: medium` |
+| `rev-quorum-glm` | `nanogpt/zai-org/glm-5.3` | Swapped to 5.3 2026-08-19 (now published; route-checked clean). Reliable structured findings, deep reviewer. `thinking-level: medium` (downgraded from the glm-5.2-era `high` — at 5.3, medium matches high's completeness at ~1/5 the wall time) |
+| `rev-quorum-grok` | `nanogpt/x-ai/grok-4.6` | Reliable structured findings; best yield discipline observed. `thinking-level: medium` |
+| `rev-quorum-nemo` | `nanogpt/nvidia/nemotron-3.5-lightning` | Added 2026-08-16, route-checked clean same day. Cheap (~$0.08/M prompt); all live endpoints ≥256K ctx (Venice 1M) fit review packets. `thinking-level: minimal` |
 
 All four quorum seats carry, as of 2026-08-20 (**not yet route-checked**): the hardened
 one-finding-per-yield output contract, a prompt-injection guard line, and an optional
@@ -177,9 +177,9 @@ in both directions; its findings are what count.
 
 | Seat | Model | Notes |
 |---|---|---|
-| `rev-sec-kimi` | `openrouter/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `cwe` converted array→comma-string 2026-08-20. `thinking-level: max` |
-| `rev-sec-glm` | `openrouter/z-ai/glm-5.3` | Activated 2026-08-19 once glm-5.3 published on OpenRouter (seat was parked while it wasn't). `cwe` restored 2026-08-20 as a comma-string (the *array* form was what 402'd z-ai — history, see below). `thinking-level: xhigh` (deep detection is the security lever: caught the one real defect on the Flint benchmark at full severity; low-effort runs were detection coin-flips) |
-| `rev-sec-grok` | `openrouter/x-ai/grok-4.6` | Added 2026-08-20 after the seeded-defect benchmark: caught the real txid defect on both defective samples (P1, zero FPs, ~5 min runs) under the security prompt; missed the one fail-open sample (re-test flagged in `docs/benchmark.md`). Route-checked clean same day. `thinking-level: medium` |
+| `rev-sec-kimi` | `nanogpt/moonshotai/kimi-k3` | Route-checked clean 2026-08-14; structured findings re-confirmed 2026-08-16 (one-finding-per-yield contract). `cwe` converted array→comma-string 2026-08-20. `thinking-level: max` |
+| `rev-sec-glm` | `nanogpt/zai-org/glm-5.3` | Activated 2026-08-19 once glm-5.3 published on OpenRouter (seat was parked while it wasn't). `cwe` restored 2026-08-20 as a comma-string (the *array* form was what 402'd z-ai — history, see below). `thinking-level: xhigh` (deep detection is the security lever: caught the one real defect on the Flint benchmark at full severity; low-effort runs were detection coin-flips) |
+| `rev-sec-grok` | `nanogpt/x-ai/grok-4.6` | Added 2026-08-20 after the seeded-defect benchmark: caught the real txid defect on both defective samples (P1, zero FPs, ~5 min runs) under the security prompt; missed the one fail-open sample (re-test flagged in `docs/benchmark.md`). Route-checked clean same day. `thinking-level: medium` |
 
 All three security seats also carry, as of 2026-08-20 (route-checked clean same day): the
 hardened one-finding-per-yield output contract, a prompt-injection guard line, an
@@ -193,14 +193,14 @@ clusters on.
 
 | Seat | Model | Why parked |
 |---|---|---|
-| `rev-quorum-deepseek` | `openrouter/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
-| `rev-quorum-qwen` | `openrouter/qwen/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
-| `rev-sec-gem` | `openrouter/google/gemini-3.7-flash` | Cut by the 2026-08-20 benchmark: 0 detections in 8 defective-sample runs (both levels + 3-run pooled passes) while voting `correct` at .95–1.0 confidence on defective code — actively harmful to the panel verdict. Routes fine; parked on merit, not policy |
+| `rev-quorum-deepseek` | `nanogpt/deepseek/deepseek-v4-pro-0813` | 404 route block ("guardrail restrictions and data policy") on this account |
+| `rev-quorum-qwen` | `nanogpt/qwen3.8-max` | Flaps: routed cleanly after a policy tweak, then blocked again |
+| `rev-sec-gem` | `nanogpt/google/gemini-3.7-flash` | Cut by the 2026-08-20 benchmark: 0 detections in 8 defective-sample runs (both levels + 3-run pooled passes) while voting `correct` at .95–1.0 confidence on defective code — actively harmful to the panel verdict. Routes fine; parked on merit, not policy |
 
 **Enable / change a model:**
 
 1. Edit `skills/<skill>/agents/rev-*.md` (your local clone; `git pull` elsewhere)
-2. Set `model:` to the desired ID (e.g. `openrouter/qwen/qwen3.8-max`)
+2. Set `model:` to the desired ID (e.g. `nanogpt/qwen3.8-max`)
 3. Add or delete the `disable: true` line
 4. Add/remove seats freely (right family prefix, e.g. `rev-sec-f.md`) — nothing else changes
 5. Re-run `./install.sh` to deploy (editing the repo file alone does NOT touch the live

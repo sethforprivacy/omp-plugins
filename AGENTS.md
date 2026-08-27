@@ -85,7 +85,12 @@ appeared, so the OMP-native copies are the only ones.
     value to a seat without teaching dedupe about it silently degrades clustering (unknown
     categories stop strengthening clusters and fall back to exact-title matching).
 
-## Model panel intel (as committed)
+All seats route through the **`nanogpt`** provider as of 2026-08-26 (was OpenRouter; same
+model suffixes, with `z-ai/`→`zai-org/` and bare qwen IDs — see `model:` in the seat files).
+The route-check history below dates from the OpenRouter era and is kept for calibration
+context, not current routing.
+
+- quorum-review active: `rev-quorum-gem` = gemini-3.7-flash (route-checked clean 2026-08-13),
 
 - quorum-review active: `rev-quorum-gem` = gemini-3.7-flash (route-checked clean 2026-08-13),
   `rev-quorum-glm` = glm-5.3 (swapped from glm-5.2 2026-08-19 after glm-5.3 hit OpenRouter;

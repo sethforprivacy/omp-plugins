@@ -1,6 +1,6 @@
 ---
 name: rev-sec-gem
-description: Security-quorum reviewer G — openrouter/google/gemini-3.7-flash (fast seat). Read-only security code reviewer for security-quorum panel passes. Picked by the main agent only via the security-quorum skill protocol, never solo.
+description: Security-quorum reviewer G — nanogpt/google/gemini-3.7-flash (fast seat). Read-only security code reviewer for security-quorum panel passes. Picked by the main agent only via the security-quorum skill protocol, never solo.
 tools: 
   - read
   - grep
@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/google/gemini-3.7-flash
+model: nanogpt/google/gemini-3.7-flash
 disable: true
 thinking-level: high
 temperature: 0.1

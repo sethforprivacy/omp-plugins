@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/google/gemini-3.7-flash
+model: nanogpt/google/gemini-3.7-flash
 thinking-level: medium
 temperature: 0.1
 output: 

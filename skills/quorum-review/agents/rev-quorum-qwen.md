@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/qwen/qwen3.8-max
+model: nanogpt/qwen3.8-max
 disable: true
 temperature: 0.1
 output: 

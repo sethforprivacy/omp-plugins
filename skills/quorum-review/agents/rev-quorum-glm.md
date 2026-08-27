@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/z-ai/glm-5.3
+model: nanogpt/zai-org/glm-5.3
 thinking-level: medium
 temperature: 0.1
 output: 

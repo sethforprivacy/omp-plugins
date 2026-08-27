@@ -1,6 +1,6 @@
 ---
 name: rev-sec-kimi
-description: Security-quorum reviewer K — openrouter/moonshotai/kimi-k3. Read-only security code reviewer for security-quorum panel passes. Picked by the main agent only via the security-quorum skill protocol, never solo.
+description: Security-quorum reviewer K — nanogpt/moonshotai/kimi-k3. Read-only security code reviewer for security-quorum panel passes. Picked by the main agent only via the security-quorum skill protocol, never solo.
 tools: 
   - read
   - grep
@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/moonshotai/kimi-k3
+model: nanogpt/moonshotai/kimi-k3
 thinking-level: max
 temperature: 0.1
 output: 

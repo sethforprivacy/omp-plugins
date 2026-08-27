@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/deepseek/deepseek-v4-pro-0813
+model: nanogpt/deepseek/deepseek-v4-pro-0813
 disable: true
 temperature: 0.1
 output: 

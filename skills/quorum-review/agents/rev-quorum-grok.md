@@ -12,7 +12,7 @@ tools:
   - yield
 spawns: 
   - scout
-model: openrouter/x-ai/grok-4.6
+model: nanogpt/x-ai/grok-4.6
 thinking-level: medium
 temperature: 0.1
 output: 
