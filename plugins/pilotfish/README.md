@@ -1,4 +1,4 @@
-# omp-pilotfish
+# pilotfish
 
 Two-tier orchestration skill for [Oh My Pi](https://github.com/can1357/oh-my-pi) (OMP): a
 **premium model orchestrates** — frames the task, plans, makes integration calls, and does the
@@ -8,8 +8,8 @@ cheaper model tier**, typically your own local router.
 A port of [Nanako0129/pilotfish](https://github.com/Nanako0129/pilotfish) (MIT) compressed
 to two tiers and wired through OMP's own agent files and `task` protocol.
 
-> Published as an OMP plugin: `omp plugin marketplace add sethforprivacy/omp-pilotfish`, then
-> `omp plugin install pilotfish@omp-pilotfish`.
+> Published as an OMP plugin: `omp plugin marketplace add sethforprivacy/omp-plugins`, then
+> `omp plugin install pilotfish@omp-plugins`.
 
 ## Why this is the ideal mix of efficacy and cost savings for local AI
 
@@ -64,8 +64,8 @@ OpenRouter per [Customizing the model tiers](#customizing-the-model-tiers).
 ## Install (plugin, recommended)
 
 ```bash
-omp plugin marketplace add sethforprivacy/omp-pilotfish
-omp plugin install pilotfish@omp-pilotfish
+omp plugin marketplace add sethforprivacy/omp-plugins
+omp plugin install pilotfish@omp-plugins
 ```
 
 ### Upgrading
@@ -74,18 +74,18 @@ omp plugin install pilotfish@omp-pilotfish
 catalog first or it will report "up to date" and reinstall the old version:
 
 ```bash
-omp plugin marketplace update omp-pilotfish
-omp plugin upgrade pilotfish@omp-pilotfish
-omp plugin list   # should show pilotfish@omp-pilotfish (<new version>)
+omp plugin marketplace update omp-plugins
+omp plugin upgrade pilotfish@omp-plugins
+omp plugin list   # should show pilotfish@omp-plugins (<new version>)
 ```
 
 If it still shows the old version, the cached catalog clone is stale beyond a fast-forward; drop and
 re-add it:
 
 ```bash
-omp plugin marketplace remove omp-pilotfish
-omp plugin marketplace add sethforprivacy/omp-pilotfish
-omp plugin install pilotfish@omp-pilotfish --force
+omp plugin marketplace remove omp-plugins
+omp plugin marketplace add sethforprivacy/omp-plugins
+omp plugin install pilotfish@omp-plugins --force
 ```
 
 Then make sure no hand-copied `~/.omp/agent/agents/pf-*.md` or `~/.omp/agent/skills/pilotfish`
@@ -135,7 +135,7 @@ omp --config <plugin-dir>/presets/all-local.yml --model vllm/GLM-5.3-Flash-Ring
 omp --config <plugin-dir>/presets/openrouter.yml --model openrouter/moonshotai/kimi-k3
 ```
 
-`<plugin-dir>` is `~/.omp/plugins/cache/plugins/omp-pilotfish___pilotfish___<version>` for a plugin
+`<plugin-dir>` is `~/.omp/plugins/cache/plugins/omp-plugins___pilotfish___<version>` for a plugin
 install, or wherever you cloned this repo. Copy a preset and change one line to try a new worker
 model on the next run — e.g. `pf-executor: vllm/qwen3.8-flash-next`.
 

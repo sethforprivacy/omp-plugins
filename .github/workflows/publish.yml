@@ -1,8 +1,11 @@
 name: publish
 
+# Tag `<plugin>-v<version>` (e.g. quorum-review-v0.3.1, pilotfish-v0.2.0) to cut a GitHub release
+# with that plugin's directory zipped. The catalog in .omp-plugin/marketplace.json is what
+# `omp plugin` reads; the release archive is a convenience for manual installs.
 on:
   push:
-    tags: ["v*"]
+    tags: ["*-v*"]
   workflow_dispatch:
 
 permissions:
@@ -13,20 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
-
-      - name: Validate marketplace catalog + plugin integrity
+      - name: Validate marketplace catalog + every plugin
         run: node scripts/validate-marketplace.mjs
-
       - name: Build plugin archive
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "artifact=pilotfish-${VERSION}.zip" >> "$GITHUB_ENV"
-          zip -r "pilotfish-${VERSION}.zip" plugins/pilotfish
-
+          TAG="${GITHUB_REF_NAME}"
+          PLUGIN="${TAG%-v*}"; VERSION="${TAG##*-v}"
+          test -d "plugins/$PLUGIN" || { echo "no plugins/$PLUGIN for tag $TAG"; exit 1; }
+          echo "artifact=${PLUGIN}-${VERSION}.zip" >> "$GITHUB_ENV"
+          zip -r "${PLUGIN}-${VERSION}.zip" "plugins/$PLUGIN"
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

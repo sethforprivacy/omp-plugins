@@ -2,15 +2,15 @@
 # install.sh — MANUAL install (or refresh) of the quorum-review bundle into an OMP install.
 #
 # Preferred path is the OMP plugin (no copy step, upgrades via `omp plugin upgrade`):
-#   omp plugin marketplace add sethforprivacy/quorum-review
-#   omp plugin install quorum-review@quorum-review
+#   omp plugin marketplace add sethforprivacy/omp-plugins
+#   omp plugin install quorum-review@omp-plugins
 # Use this script only where plugins are not an option. Hand-copied files SHADOW plugin files of
 # the same name, so never run both: `./install.sh --uninstall` removes the manual copies.
 #
-# Layout it installs from (the plugin dir):
-#   plugins/quorum-review/skills/<skill>/SKILL.md      -> $HOME/.omp/agent/skills/<skill>/SKILL.md
-#   plugins/quorum-review/skills/quorum-review/scripts -> $HOME/.omp/agent/skills/quorum-review/scripts/
-#   plugins/quorum-review/agents/rev-*.md              -> $HOME/.omp/agent/agents/
+# Layout it installs from (this plugin dir):
+#   skills/<skill>/SKILL.md      -> $HOME/.omp/agent/skills/<skill>/SKILL.md
+#   skills/quorum-review/scripts -> $HOME/.omp/agent/skills/quorum-review/scripts/
+#   agents/rev-*.md              -> $HOME/.omp/agent/agents/
 # The protocol scripts live in ONE place (the quorum-review skill dir); security-quorum's SKILL.md
 # points there.
 #
@@ -27,16 +27,16 @@
 #   ./install.sh --dry-run    # show targets and what would be copied, change nothing
 #   ./install.sh --uninstall  # remove the manual copies (skills + rev-* seats); backups are kept
 #   ./install.sh --no-backup
-#   ./install.sh --no-lint    # skip the pre-install consistency lint (scripts/lint.mjs)
+#   ./install.sh --no-lint    # skip the pre-install consistency lint (scripts/lint-quorum-review.mjs)
 #   ./install.sh --help
 #
-# Seat models are swapped WITHOUT editing seat files: see plugins/quorum-review/presets/README.md
+# Seat models are assigned in OMP config, never in seat files: see presets/README.md
 # (OMP `task.agentModelOverrides`, per seat name; `omp --config <preset>.yml` for one run).
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="$REPO_ROOT/plugins/quorum-review"
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"      # this script lives in the plugin dir
+REPO_ROOT="$(cd "$PLUGIN_DIR/../.." && pwd)"                       # marketplace repo root (scripts/lint-*.mjs)
 
 DRY_RUN=0
 BACKUP=1
@@ -62,7 +62,7 @@ AGENTS_DIR="${QUORUM_AGENTS_DIR:-$OMP_HOME/agent/agents}"
 echo "install: target SKILLS_DIR=$SKILLS_DIR"
 echo "install: target AGENTS_DIR=$AGENTS_DIR"
 
-[ -d "$PLUGIN_DIR/skills" ] || { echo "install: bundle incomplete (no plugins/quorum-review/skills/)" >&2; exit 1; }
+[ -d "$PLUGIN_DIR/skills" ] || { echo "install: bundle incomplete (no skills/ next to install.sh)" >&2; exit 1; }
 SCRIPTS_SRC="$PLUGIN_DIR/skills/quorum-review/scripts"
 [ -d "$SCRIPTS_SRC" ] || { echo "install: bundle incomplete (no $SCRIPTS_SRC)" >&2; exit 1; }
 
@@ -113,9 +113,9 @@ fi
 
 # Refuse to install a bundle that fails its own consistency lint (seat/schema drift, write tools
 # on a seat, a seat that can spawn helpers, category enums out of sync with dedupe, ...).
-if [ "$LINT" -eq 1 ] && [ -f "$REPO_ROOT/scripts/lint.mjs" ]; then
+if [ "$LINT" -eq 1 ] && [ -f "$REPO_ROOT/scripts/lint-quorum-review.mjs" ]; then
   if command -v node >/dev/null 2>&1; then
-    node "$REPO_ROOT/scripts/lint.mjs" --quiet || { echo "install: lint failed — fix the seat files (or pass --no-lint to force)" >&2; exit 1; }
+    node "$REPO_ROOT/scripts/lint-quorum-review.mjs" --quiet || { echo "install: lint failed — fix the seat files (or pass --no-lint to force)" >&2; exit 1; }
   else
     echo "install: node not found — skipping lint (scripts need Node 18+)." >&2
   fi
@@ -202,4 +202,4 @@ if [ -f "$OMP_HOME/agent/.env" ]; then
   esac
 fi
 echo "install: done. In an OMP session, mention 'panel review'/'quorum' or 'security review' to use the skills."
-echo "install: to run a seat on another model without editing files, see plugins/quorum-review/presets/README.md."
+echo "install: assign seat models in your OMP config — see presets/README.md next to this script."

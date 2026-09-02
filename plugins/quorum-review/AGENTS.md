@@ -8,25 +8,25 @@ To the agent reading this: this repo is the distributable for OMP skills. It is 
 Two panel-review skills, one bundle:
 
 - **quorum-review** — general "last pass" gate. When the user says **"panel review" /
-  "quorum" / "review pass" / "last pass"**, run `plugins/quorum-review/skills/quorum-review/SKILL.md`: focus →
+  "quorum" / "review pass" / "last pass"**, run `skills/quorum-review/SKILL.md`: focus →
   panel snapshot → packet → spawn every ACTIVE `rev-quorum-*` seat in ONE parallel batch →
   save results verbatim → dedupe by consensus → present → fix corroborated findings. Goal: an
   honest final quality gate using models independent of the user's local work model.
 - **security-quorum** — focused security pass. When the user says **"security review" /
-  "security pass" / "sec review" / "threat check"**, run `plugins/quorum-review/skills/security-quorum/SKILL.md`:
+  "security pass" / "sec review" / "threat check"**, run `skills/security-quorum/SKILL.md`:
   the same protocol over the **`rev-sec-*`** panel, scoped to ONE small surface, with
   security-tuned detection criteria in the seat prompts. Separate results dir
   `~/.omp/security-quorum/`.
 
 ## Layout
 
-- `.omp-plugin/marketplace.json` — the OMP marketplace catalog; this repo is the marketplace and
-  `plugins/quorum-review/` the single plugin (`omp plugin install quorum-review@quorum-review`).
-- `plugins/quorum-review/skills/<name>/SKILL.md` — one skill per dir. Frontmatter
+- the repo-root `.omp-plugin/marketplace.json` — the OMP marketplace catalog; this repo is the marketplace and
+  `plugins/quorum-review/` the single plugin (`omp plugin install quorum-review@omp-plugins`).
+- `skills/<name>/SKILL.md` — one skill per dir. Frontmatter
   `panel_prefix:` names the seat family that skill's panel reads (`rev-quorum-` / `rev-sec-`).
-- `plugins/quorum-review/agents/rev-*.md` — ALL seat agents, both families, one dir. Shipped
+- `agents/rev-*.md` — ALL seat agents, both families, one dir. Shipped
   seats are NEUTRAL: `model: "@<seat-name>"` and no thinking level. Models are client config.
-- `plugins/quorum-review/skills/quorum-review/scripts/` — the SHARED protocol scripts (`panel`,
+- `skills/quorum-review/scripts/` — the SHARED protocol scripts (`panel`,
   `packet`, `dedupe`, `minipacket`), single source of truth. security-quorum's SKILL.md points
   here; both SKILL.md files resolve the dir at run start (plugin cache path first, manual path
   second).
@@ -38,12 +38,12 @@ Two panel-review skills, one bundle:
 
 ## Installation (target machine)
 
-Plugin (preferred): `omp plugin marketplace add sethforprivacy/quorum-review && omp plugin install
-quorum-review@quorum-review`; upgrade with `omp plugin marketplace update quorum-review && omp
-plugin upgrade quorum-review@quorum-review`. Manual fallback: `./install.sh` (lints first, copies
+Plugin (preferred): `omp plugin marketplace add sethforprivacy/omp-plugins && omp plugin install
+quorum-review@omp-plugins`; upgrade with `omp plugin marketplace update omp-plugins && omp
+plugin upgrade quorum-review@omp-plugins`. Manual fallback: `./install.sh` (lints first, copies
 to `~/.omp/agent/{skills,agents}`, `--uninstall` removes the copies). **Never both**: manual copies
-shadow plugin files by name. Version bumps touch `.omp-plugin/marketplace.json` (twice) and
-`plugins/quorum-review/package.json`; the validator enforces equality.
+shadow plugin files by name. Version bumps touch this plugin's `package.json` and its entry in the repo-root catalog; the
+validator enforces equality.
 
 ## Key invariants — do not break
 

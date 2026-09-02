@@ -1,38 +1,37 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "omp-pilotfish",
+  "name": "omp-plugins",
   "owner": {
     "name": "Seth",
     "email": "seth@sethforprivacy.com"
   },
   "metadata": {
-    "description": "Two-tier orchestration for Oh My Pi: a premium model orchestrates + owns the final review, all work/research/implementation runs on your local cheaper router. Port of Nanako0129/pilotfish (MIT).",
-    "version": "0.2.0"
+    "description": "Oh My Pi plugins by sethforprivacy: multi-model panel review (quorum-review, security-quorum) and two-tier orchestration (pilotfish). One marketplace, independently versioned plugins.",
+    "version": "1.0.0"
   },
   "plugins": [
     {
+      "name": "quorum-review",
+      "description": "quorum-review + security-quorum skills: independent remote reviewer seats spawned in parallel, findings deduped by consensus, provenance-checked. Seats are neutral slots; you assign models in OMP config.",
+      "source": "./plugins/quorum-review",
+      "version": "0.3.1",
+      "author": { "name": "Seth", "email": "seth@sethforprivacy.com" },
+      "homepage": "https://github.com/sethforprivacy/omp-plugins/tree/main/plugins/quorum-review",
+      "repository": "https://github.com/sethforprivacy/omp-plugins",
+      "category": "development",
+      "keywords": ["code-review", "security-review", "multi-model", "quorum", "consensus", "panel"]
+    },
+    {
       "name": "pilotfish",
-      "description": "Two-tier orchestration skill — premium model plans/reviews, local router does all volume work",
+      "description": "Two-tier orchestration skill: a strong model plans, integrates and does the final review; all volume work runs on a cheaper worker tier. Port of Nanako0129/pilotfish (MIT).",
       "source": "./plugins/pilotfish",
       "version": "0.2.0",
-      "author": {
-        "name": "Seth",
-        "email": "seth@sethforprivacy.com"
-      },
-      "homepage": "https://github.com/sethforprivacy/omp-pilotfish",
-      "repository": "https://github.com/sethforprivacy/omp-pilotfish",
+      "author": { "name": "Seth", "email": "seth@sethforprivacy.com" },
+      "homepage": "https://github.com/sethforprivacy/omp-plugins/tree/main/plugins/pilotfish",
+      "repository": "https://github.com/sethforprivacy/omp-plugins",
       "license": "MIT",
       "category": "development",
-      "keywords": [
-        "orchestration",
-        "two-tier",
-        "local-ai",
-        "vllm",
-        "kimi-k3",
-        "glm-5.3",
-        "deepseek",
-        "pilotfish"
-      ]
+      "keywords": ["orchestration", "two-tier", "local-ai", "pilotfish"]
     }
   ]
 }

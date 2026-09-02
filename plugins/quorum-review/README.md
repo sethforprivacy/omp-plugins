@@ -23,31 +23,28 @@ optional refutation pass, OMP plugin packaging. Mechanically smoke-tested; see
 [`docs/review-2026-09-02.md`](docs/review-2026-09-02.md) for what real-run traces changed and
 [`docs/benchmark.md`](docs/benchmark.md) for how to calibrate seats against seeded defects.
 
-## Layout
+## Layout (this directory is the plugin; the repo root is the marketplace)
 
 ```
-repo root/
-  .omp-plugin/marketplace.json   ← OMP marketplace catalog (this repo IS the marketplace)
-  plugins/quorum-review/         ← the plugin
-    package.json                 ← version (kept equal to the catalog by validate-marketplace)
-    agents/rev-quorum-*.md       ← general panel seats (neutral slots: model: "@<seat>")
-    agents/rev-sec-*.md          ← security seats; detection criteria/exclusions/precedents live here
-    skills/quorum-review/
-      SKILL.md                   ← general panel-review protocol (panel_prefix: rev-quorum-)
-      scripts/                   ← the SHARED protocol scripts (single source of truth)
-        panel.mjs                ← ACTIVE seats for a family, with EFFECTIVE models
-        packet.mjs               ← focus + summary + diff; secret rail; fingerprint; auto context
-        dedupe.mjs               ← merges results, clusters, consensus report (--panel, --refuted)
-        minipacket.mjs           ← anonymized follow-up packets: refutation pass / arbitration
-    skills/security-quorum/
-      SKILL.md                   ← focused security-review protocol (panel_prefix: rev-sec-);
-                                   uses the quorum-review skill's scripts/
-    presets/                     ← config templates: seat→model assignment, runtime backstops (+ README)
-  scripts/lint.mjs               ← seat/skill consistency lint (CI + install.sh)
-  scripts/validate-marketplace.mjs ← catalog/plugin integrity (CI)
-  install.sh                     ← MANUAL install fallback (+ --uninstall, --dry-run)
-  docs/, bench/                  ← benchmark, thinking-level calibration, review notes, seeded patches
-  .github/workflows/ci.yml       ← lint + validate + script smoke tests (SHA-pinned actions)
+plugins/quorum-review/
+  package.json                 ← plugin version (must equal the catalog entry at the repo root)
+  agents/rev-quorum-*.md       ← general panel seats (neutral slots: model: "@<seat>")
+  agents/rev-sec-*.md          ← security seats; detection criteria/exclusions/precedents live here
+  skills/quorum-review/
+    SKILL.md                   ← general panel-review protocol (panel_prefix: rev-quorum-)
+    scripts/                   ← the SHARED protocol scripts (single source of truth)
+      panel.mjs                ← ACTIVE seats for a family, with EFFECTIVE models
+      packet.mjs               ← focus + summary + diff; secret rail; fingerprint; auto context
+      dedupe.mjs               ← merges results, clusters, consensus report (--panel, --refuted)
+      minipacket.mjs           ← anonymized follow-up packets: refutation pass / arbitration
+  skills/security-quorum/
+    SKILL.md                   ← focused security-review protocol (panel_prefix: rev-sec-);
+                                 uses the quorum-review skill's scripts/
+  presets/                     ← config templates: seat→model assignment, runtime backstops (+ README)
+  install.sh                   ← MANUAL install fallback (+ --uninstall, --dry-run)
+  docs/, bench/                ← benchmark method, thinking-level sweeps, review notes, seeded patches
+../../scripts/lint-quorum-review.mjs   ← seat/skill consistency lint (CI + install.sh)
+../../scripts/validate-marketplace.mjs ← catalog/plugin integrity for every plugin (CI)
 ```
 
 Seat families are keyed by filename prefix (`rev-quorum-*`, `rev-sec-*`). A seat never appears
@@ -64,16 +61,16 @@ in the other family's panel.
 ## Install (plugin, recommended)
 
 ```bash
-omp plugin marketplace add sethforprivacy/quorum-review
-omp plugin install quorum-review@quorum-review
+omp plugin marketplace add sethforprivacy/omp-plugins
+omp plugin install quorum-review@omp-plugins
 ```
 
 Upgrading — `omp plugin upgrade` compares against a **cached copy of the catalog**, so refresh it
 first or it reports "up to date":
 
 ```bash
-omp plugin marketplace update quorum-review
-omp plugin upgrade quorum-review@quorum-review
+omp plugin marketplace update omp-plugins
+omp plugin upgrade quorum-review@omp-plugins
 omp plugin list
 ```
 
@@ -90,12 +87,12 @@ Then assign models to the seats (next section) — the plugin ships none.
 ## Install (manual copy, fallback)
 
 ```bash
-git clone https://github.com/sethforprivacy/quorum-review.git && cd quorum-review
+git clone https://github.com/sethforprivacy/omp-plugins.git && cd omp-plugins/plugins/quorum-review
 ./install.sh           # lints, then copies skills + scripts + seats to OMP global paths
 ./install.sh --dry-run # preview first
 ```
 
-What it does (idempotent, re-run after `git pull`): runs `scripts/lint.mjs` and refuses a failing
+What it does (idempotent, re-run after `git pull`): runs `../../scripts/lint-quorum-review.mjs` and refuses a failing
 bundle (`--no-lint` to force); copies each `SKILL.md` to `~/.omp/agent/skills/<name>/`, the
 protocol scripts to `~/.omp/agent/skills/quorum-review/scripts/` only, and all `rev-*.md` seats to
 `~/.omp/agent/agents/`; backs up anything it replaces into `$OMP_HOME/skills-backup-<ts>/`; prints
@@ -188,8 +185,8 @@ task:
 | One repo | `<repo>/.omp/config.yml` |
 | Everywhere | `~/.omp/agent/config.yml`, or the `/agents` hub in the TUI |
 
-`plugins/quorum-review/presets/override-template.yml` is that block with placeholders;
-[`presets/README.md`](plugins/quorum-review/presets/README.md) has the rules (route-check first,
+`presets/override-template.yml` is that block with placeholders;
+[`presets/README.md`](presets/README.md) has the rules (route-check first,
 different vendors, keys in `.env`). `panel.mjs` prints each seat's effective model and where it
 came from; session overlays are invisible to it, which is why the protocol checks each delivered
 result's resolved model.
@@ -209,7 +206,7 @@ delegate), a repo-conventions rule (findings resting on a project rule cite it),
 you verified it" requirement, and an optional `category` used for clustering. Security seats
 add `<detection-criteria>`, `<exclusions>` (noise classes, each overridable by naming it in
 `--focus`), `<precedents>` (safe-by-default assertions), and a comma-string `cwe` field.
-`scripts/lint.mjs` enforces the shape, including that seat files stay provider-neutral.
+`../../scripts/lint-quorum-review.mjs` enforces the shape, including that seat files stay provider-neutral.
 
 ## Security-quorum detection tuning
 
@@ -239,15 +236,15 @@ framework- and product-agnostic — then re-run `./install.sh`.
 | Findings that are clearly the same never corroborate | Check paths in the files: clustering tolerates abs/rel forms but not different filenames; check `category` disagreement (different categories only cluster on exact title) |
 | Panel shows the other skill's seats | Wrong `--prefix` (families are strictly prefix-keyed) |
 | Reviews landed on `scout`/`reviewer`/local agents | Off-protocol. Re-run per SKILL.md step 4: seats only. If the seat agents are missing, run `install.sh` |
-| `install.sh` refuses: lint failed | Fix what `scripts/lint.mjs` prints (seat drift, write tool on a seat, `spawns:`, category enum mismatch, a provider baked into a seat); `--no-lint` forces |
+| `install.sh` refuses: lint failed | Fix what `../../scripts/lint-quorum-review.mjs` prints (seat drift, write tool on a seat, `spawns:`, category enum mismatch, a provider baked into a seat); `--no-lint` forces |
 | Skill runs an old script / two copies of a seat exist | A manual `install.sh` copy shadows the plugin. `./install.sh --uninstall`, then `omp plugin upgrade` |
 | Refutation result ignored ("no matching cluster") | The refuter changed the title; titles must be copied verbatim from the refute packet (dedupe also matches same file + overlapping lines) |
 
 ## Dev / tuning loop
 
 ```bash
-node scripts/lint.mjs                                   # seat/skill consistency (CI + install run it)
-node scripts/validate-marketplace.mjs                   # catalog/plugin integrity (CI runs it)
+node ../../scripts/lint-quorum-review.mjs                                   # seat/skill consistency (CI + install run it)
+node ../../scripts/validate-marketplace.mjs                   # catalog/plugin integrity (CI runs it)
 Q=plugins/quorum-review/skills/quorum-review/scripts
 node $Q/panel.mjs --agents-dir plugins/quorum-review/agents             # general seats from the repo
 node $Q/panel.mjs --agents-dir plugins/quorum-review/agents --prefix rev-sec-
@@ -257,10 +254,10 @@ node $Q/minipacket.mjs --report /tmp/r.md.report.json --mode refute --out /tmp/r
 ./install.sh --dry-run                                  # manual-install surface
 ```
 
-Releasing: bump the version in `.omp-plugin/marketplace.json` (both places) and
-`plugins/quorum-review/package.json` together (the validator enforces equality), merge to
-`main`, then `omp plugin marketplace update quorum-review && omp plugin upgrade
-quorum-review@quorum-review` on each machine.
+Releasing: bump `version` in this plugin's `package.json` and in its entry in the repo-root
+`.omp-plugin/marketplace.json` together (the validator enforces equality), merge to
+`main`, then `omp plugin marketplace update omp-plugins && omp plugin upgrade
+quorum-review@omp-plugins` on each machine.
 
 Detection tuning (which seat/level catches defects) is measured against the seeded-defect
 benchmark in [`docs/benchmark.md`](docs/benchmark.md); thinking-level effort/coverage data

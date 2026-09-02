@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // lint.mjs — dependency-free consistency lint for the bundle's seat files and skills.
 //
-//   node scripts/lint.mjs            # exit 0 = clean, 1 = problems
-//   node scripts/lint.mjs --quiet    # only print failures
+//   node scripts/lint-quorum-review.mjs            # exit 0 = clean, 1 = problems
+//   node scripts/lint-quorum-review.mjs --quiet    # only print failures
 //
 // Catches the drift a multi-seat panel accumulates silently. Per skills/<skill>/:
 //   - SKILL.md has frontmatter `name:` (== dir name), `description:`, `panel_prefix:`
@@ -186,9 +186,9 @@ for (const dir of scriptDirs) {
 for (const s of ["panel.mjs", "packet.mjs", "dedupe.mjs", "minipacket.mjs"]) {
   if (!existsSync(join(skillsDir, "quorum-review", "scripts", s))) fail(`skills/quorum-review/scripts/${s}: missing (both SKILL.md files reference it)`);
 }
-const installer = join(repoRoot, "install.sh");
-if (!existsSync(installer)) fail("install.sh missing");
-else if (!(statSync(installer).mode & 0o111)) fail("install.sh is not executable");
+const installer = join(pluginDir, "install.sh");
+if (!existsSync(installer)) fail("plugins/quorum-review/install.sh missing");
+else if (!(statSync(installer).mode & 0o111)) fail("plugins/quorum-review/install.sh is not executable");
 
 if (failed) { console.error("\nlint FAILED"); process.exit(1); }
 console.log(quiet ? "lint OK" : "\nlint OK");

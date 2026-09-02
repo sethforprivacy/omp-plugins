@@ -1,5 +1,5 @@
 {
-  "name": "omp-pilotfish",
+  "name": "pilotfish",
   "version": "0.2.0",
   "description": "Two-tier orchestration skill for Oh My Pi: premium model orchestrates + final review, all work/research/implementation on your local router. Port of Nanako0129/pilotfish (MIT).",
   "license": "MIT"

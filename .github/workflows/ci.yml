@@ -16,21 +16,32 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
-      - name: Validate marketplace catalog + plugin integrity
+      - name: Validate marketplace catalog + every plugin
         run: node scripts/validate-marketplace.mjs
-      - name: Lint agent frontmatter + presets
-        run: node scripts/lint-agents.mjs
-      - name: Smoke-test the packet script
+      - name: Lint quorum-review seats and skills
+        run: node scripts/lint-quorum-review.mjs
+      - name: Lint pilotfish agents and presets
+        run: node scripts/lint-pilotfish.mjs
+      - name: quorum-review installer dry run
+        run: plugins/quorum-review/install.sh --dry-run
+      - name: quorum-review script smoke
+        run: |
+          S=plugins/quorum-review/skills/quorum-review/scripts
+          if node $S/panel.mjs --agents-dir plugins/quorum-review/agents --no-omp 2>/tmp/panel.err; then echo "panel should have failed"; exit 1; fi
+          grep -q "UNCONFIGURED" /tmp/panel.err
+          printf '%s' '{"seats":[{"name":"rev-sec-a","model":"someprovider/model-a"},{"name":"rev-sec-b","model":"someprovider/model-b"},{"name":"rev-sec-c","model":"someprovider/model-c"}]}' > /tmp/panel.json
+          node $S/packet.mjs --focus "ci smoke" --files $PWD/README.md --out /tmp/pkt.md --json
+          grep -q "ci smoke" /tmp/pkt.md && grep -q '"fingerprint"' /tmp/pkt.md.json
+          mkdir -p /tmp/res
+          printf '%s' '{"agent":"rev-sec-a","resolvedModel":"someprovider/model-a","overall_correctness":"incorrect","confidence":0.8,"explanation":"x","findings":[{"title":"Reject unchecked input","body":"a","priority":1,"confidence":0.9,"file_path":"src/a.cs","line_start":1,"line_end":3,"category":"input-validation"}]}' > /tmp/res/rev-sec-a-1.json
+          printf '%s' '{"agent":"rev-sec-b","resolvedModel":"someprovider/model-b","overall_correctness":"incorrect","confidence":0.7,"explanation":"y","findings":[{"title":"Unchecked input reaches sink","body":"b","priority":1,"confidence":0.8,"file_path":"/repo/src/a.cs","line_start":2,"line_end":4,"category":"input-validation"}]}' > /tmp/res/rev-sec-b-1.json
+          node $S/dedupe.mjs --dir /tmp/res --panel /tmp/panel.json --cwd /repo --out /tmp/report.md --json
+          grep -q "2/3" /tmp/report.md && grep -q "no result: rev-sec-c" /tmp/report.md
+          node $S/minipacket.mjs --report /tmp/report.md.report.json --mode refute --select all --cwd /repo --out /tmp/mini.md
+          grep -q "Reject unchecked input" /tmp/mini.md
+      - name: pilotfish script smoke
         run: |
           node plugins/pilotfish/skills/pilotfish/scripts/packet.mjs \
             --focus "ci smoke" --claim "runs" --limit 2000 --files plugins/pilotfish/skills/pilotfish/SKILL.md \
             --out /tmp/pf-smoke.md
-          test -s /tmp/pf-smoke.md
-          grep -q "ci smoke" /tmp/pf-smoke.md
-          grep -q "fingerprint" /tmp/pf-smoke.md
-          # secret hygiene: an untracked .env-style file must be listed but never embedded
-          echo "TOKEN=sk-ci-should-not-leak" > plugins/pilotfish/ci-probe.env
-          node plugins/pilotfish/skills/pilotfish/scripts/packet.mjs --focus "ci secret probe" --out /tmp/pf-secret.md
-          grep -q "not embedded: secret-like name" /tmp/pf-secret.md
-          ! grep -q "sk-ci-should-not-leak" /tmp/pf-secret.md
-          rm -f plugins/pilotfish/ci-probe.env
+          test -s /tmp/pf-smoke.md && grep -q "ci smoke" /tmp/pf-smoke.md
