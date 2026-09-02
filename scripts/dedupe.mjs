@@ -3,12 +3,28 @@
 // consensus-ranked report. Deterministic: same inputs → same output (stable sort, no randomness).
 //
 // Usage:
-//   dedupe.mjs <findings.json...> [--out <path>] [--json]
+//   dedupe.mjs <findings.json...> [--out <path>] [--json] [--expected <seat,seat,...>]
 //   dedupe.mjs --dir <path>        # scan <path>/*.json for reviewer results
 //
 // Options:
-//   --out <path>   Write markdown report to <path> (default stdout).
-//   --json         Also write machine-readable merged JSON to <path>.json (or stdout when no --out).
+//   --out <path>        Write markdown report to <path> (default stdout).
+//   --json              Also write machine-readable merged JSON to <path>.json (or stdout when no --out).
+//   --expected <a,b,c>  The ACTIVE seat names this run spawned (paste panel.mjs output names). Any
+//                       expected seat with no result file is listed as "no result" and counted in
+//                       every denominator, so a failed seat can never silently shrink the panel.
+//                       A result file matches a seat when its basename is the seat name or starts
+//                       with "<seat>-" (or its JSON carries `seat`/`agent`).
+//   --panel <path>      Same as --expected, read from `panel.mjs --json > <path>` (the seat list
+//                       captured at spawn time). Also cross-checks each result's resolvedModel
+//                       against the panel's effective model and flags mismatches.
+//
+// File paths are normalized before clustering (absolute → relative to --cwd or the process cwd;
+// a path that is a suffix of another counts as the same file), because seats cite the same file
+// as `/abs/path/x.cs`, `x.cs` or `src/x.cs` and un-normalized keys silently prevent corroboration.
+//
+// Ranking: priority first (P0 before P3), then corroboration count, then confidence, then file.
+// Corroboration promotes a finding; it never demotes one — a specific single-seat P0/P1 sits above
+// a corroborated P2, and the report calls those out separately so consensus never buries them.
 //
 // Input file shape (permissive extraction):
 //   { findings: [...], overall_correctness?, explanation?, confidence? }
@@ -40,13 +56,16 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const args = { files: [], dir: null, out: null, json: false };
+  const args = { files: [], dir: null, out: null, json: false, expected: [], panel: null, cwd: process.cwd() };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => argv[++i];
     if (a === "--out") args.out = val();
     else if (a === "--json") args.json = true;
     else if (a === "--dir") args.dir = val();
+    else if (a === "--cwd") args.cwd = val();
+    else if (a === "--expected") args.expected = (val() || "").split(",").map((s) => s.trim()).filter(Boolean);
+    else if (a === "--panel") args.panel = val();
     else if (a.startsWith("-")) fail(`unknown arg ${a}`);
     else args.files.push(a);
   }
@@ -113,7 +132,7 @@ function normalizeCategory(c) {
 }
 
 function sameIssue(a, b) {
-  if (a.fileKey !== b.fileKey) return false;
+  if (!sameFile(a.fileKey, b.fileKey)) return false;
   if (normalizeTitle(a.title) === normalizeTitle(b.title)) return true;
   const ca = normalizeCategory(a.category), cb = normalizeCategory(b.category);
   if (ca && cb) {
@@ -149,14 +168,71 @@ function extract(obj) {
     }
   }
   const findings = Array.isArray(src.findings) ? src.findings : [];
+  // Provenance, when the saved result carries it (OMP reports the model a spawn actually ran on
+  // as `resolvedModel`; a fallback onto the parent session's model is NOT an independent seat).
+  const pick = (...vals) => vals.find((v) => typeof v === "string" && v.trim()) || null;
+  const resolvedModel = pick(obj?.resolvedModel, obj?.model, src?.resolvedModel, src?.model);
+  const fallback = obj?.resolvedModelIsFallback === true || src?.resolvedModelIsFallback === true;
+  const seatName = pick(obj?.seat, obj?.agent, src?.seat, src?.agent);
+  // Verdict may sit under `verdict:` as a string ("incorrect - reason") or object in
+  // hand-transcribed results; normalize to the enum and keep the remainder as explanation.
+  const v = src.verdict && typeof src.verdict === "object" ? src.verdict : {};
+  let overall = src.overall_correctness ?? v.overall_correctness;
+  let explanation = src.explanation ?? v.explanation;
+  if (overall === undefined && typeof src.verdict === "string") {
+    const m = src.verdict.match(/^\s*(incorrect|correct)\b[\s:\-—]*(.*)$/is);
+    if (m) { overall = m[1].toLowerCase(); explanation = explanation ?? (m[2].trim() || undefined); }
+    else overall = src.verdict;
+  }
   return {
     verdict: {
-      overall_correctness: src.overall_correctness,
-      explanation: src.explanation,
-      confidence: src.confidence,
+      overall_correctness: overall,
+      explanation,
+      confidence: src.confidence ?? v.confidence,
     },
     findings,
+    resolvedModel,
+    fallback,
+    seatName,
+    transcribed: findings.some((f) => f && typeof f === "object" && (f.severity !== undefined || f.area !== undefined) && f.priority === undefined),
   };
+}
+
+// Priority may arrive as 0-3, "P1", or "1" — a transcribed result should not read as P3 conf 0.
+function parsePriority(f) {
+  if (Number.isFinite(f.priority)) return f.priority;
+  const raw = f.priority ?? f.severity;
+  const m = String(raw ?? "").match(/([0-3])/);
+  return m ? Number(m[1]) : 3;
+}
+
+function seatOf(source, expected) {
+  return expected.find((s) => source === s || source.startsWith(`${s}-`)) || null;
+}
+
+// Normalize a cited path to a repo-relative form for clustering.
+function normalizePath(p, cwd) {
+  let s = String(p || "").trim().replace(/\\/g, "/");
+  if (!s) return "(no file)";
+  const root = cwd.replace(/\\/g, "/").replace(/\/+$/, "") + "/";
+  if (s.startsWith(root)) s = s.slice(root.length);
+  return s.replace(/^\.\//, "").replace(/:\d+(-\d+)?$/, "");
+}
+
+// Same file when the keys are equal or one is a path-suffix of the other (`x.cs` vs `src/x.cs`).
+function sameFile(a, b) {
+  if (a === b) return true;
+  if (a === "(no file)" || b === "(no file)") return false;
+  return a.endsWith("/" + b) || b.endsWith("/" + a);
+}
+
+// A model selector matches when the two strings are equal after stripping a `:level` suffix,
+// or one is the other's suffix (`glm-5.3` vs `nanogpt/zai-org/glm-5.3`).
+function modelMatches(resolved, expected) {
+  const strip = (s) => String(s || "").trim().replace(/:[a-z]+$/i, "");
+  const r = strip(resolved), e = strip(expected);
+  if (!r || !e) return true;
+  return r === e || r.endsWith("/" + e) || e.endsWith("/" + r);
 }
 
 function renderPriority(p) {
@@ -164,6 +240,22 @@ function renderPriority(p) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+const panelModels = new Map(); // seat -> effective model at spawn time
+if (args.panel) {
+  let panel;
+  try {
+    panel = JSON.parse(readFileSync(args.panel, "utf8"));
+  } catch (e) {
+    fail(`--panel ${args.panel}: ${e.message}`);
+  }
+  const seats = Array.isArray(panel) ? panel : Array.isArray(panel?.seats) ? panel.seats : null;
+  if (!seats) fail(`--panel ${args.panel}: expected panel.mjs --json output ({ seats: [...] })`);
+  for (const s of seats) {
+    if (!s?.name) continue;
+    if (!args.expected.includes(s.name)) args.expected.push(s.name);
+    if (s.model) panelModels.set(s.name, s.model);
+  }
+}
 if (args.dir) {
   if (!existsSync(args.dir)) fail(`--dir ${args.dir} does not exist`);
   // Only reviewer-result files: exclude dedupe's own report artifacts and any
@@ -186,26 +278,40 @@ for (const f of args.files) {
     skipped.push(f);
     continue;
   }
-  const { verdict, findings } = extract(raw);
+  const { verdict, findings, resolvedModel, fallback, seatName, transcribed } = extract(raw);
   const source = f.replace(/\.json$/i, "").split(/[\\/]/).pop();
-  reviewers.push({ source, verdict, findings, raw });
+  if (!Array.isArray(raw?.findings) && verdict.overall_correctness === undefined && findings.length === 0) {
+    console.error(`dedupe: warning — skipping ${f}: not a reviewer result (no findings/verdict; a panel snapshot or packet metadata?)`);
+    skipped.push(f);
+    continue;
+  }
+  if (transcribed) console.error(`dedupe: warning — ${source} looks hand-transcribed (severity/area instead of priority/file_path); save raw seat results, not paraphrases`);
+  const seat = seatOf(source, args.expected) || (seatName && args.expected.includes(seatName) ? seatName : null);
+  const expectedModel = seat ? panelModels.get(seat) : undefined;
+  const modelMismatch = !!(expectedModel && resolvedModel && !modelMatches(resolvedModel, expectedModel));
+  reviewers.push({ source, seat, verdict, findings, resolvedModel, expectedModel, modelMismatch, fallback, raw });
 }
 if (reviewers.length === 0) fail(`no reviewer files could be parsed (${skipped.length} skipped)`);
+
+// Expected seats that delivered nothing. Denominators use the full expected panel.
+const delivered = new Set(reviewers.map((r) => r.seat).filter(Boolean));
+const missing = args.expected.filter((s) => !delivered.has(s));
+const unexpected = args.expected.length ? reviewers.filter((r) => !r.seat).map((r) => r.source) : [];
+const panelSize = args.expected.length ? Math.max(args.expected.length, reviewers.length) : reviewers.length;
 
 // Flatten all findings with provenance.
 const clusterKey = new Map();
 const clusters = [];
-const byFile = new Map();
 for (let ri = 0; ri < reviewers.length; ri++) {
   for (const f of reviewers[ri].findings) {
     if (!f || typeof f !== "object") continue;
-    const fileKey = String(f.file_path || "(no file)");
+    const fileKey = normalizePath(f.file_path || f.file || f.area, args.cwd);
     const item = {
       ri,
       source: reviewers[ri].source,
       title: String(f.title || ""),
       body: String(f.body || ""),
-      priority: Number.isFinite(f.priority) ? f.priority : 3,
+      priority: parsePriority(f),
       confidence: Number.isFinite(f.confidence) ? f.confidence : 0,
       file_path: fileKey,
       line_start: Number.isFinite(f.line_start) ? f.line_start : null,
@@ -214,20 +320,18 @@ for (let ri = 0; ri < reviewers.length; ri++) {
       cwe: typeof f.cwe === "string" && f.cwe.trim() ? f.cwe.trim() : null,
       fileKey,
     };
-    const fileClusters = byFile.get(fileKey) || (byFile.set(fileKey, []).get(fileKey));
     let matched = null;
-    for (const c of fileClusters) {
+    for (const c of clusters) {
       // Only cluster findings from DIFFERENT reviewers: the same reviewer's findings are
       // distinct by construction, and merging them collapses real findings that merely
-      // share a file, a line neighborhood, and a common distinctive token.
+      // share a file, a line neighborhood, and a common distinctive token. sameIssue()
+      // starts with the (suffix-tolerant) same-file test, so scanning all clusters is safe.
       if (c.items.some((m) => m.ri !== item.ri && sameIssue(item, m))) { matched = c; break; }
     }
     if (matched) {
       matched.items.push(item);
     } else {
-      const c = { items: [item] };
-      fileClusters.push(c);
-      clusters.push(c);
+      clusters.push({ items: [item] });
     }
     clusterKey.set(item, clusterKey.size);
   }
@@ -265,10 +369,10 @@ const merged = clusters.map((c) => {
 });
 
 const sortKey = (m) => [
-  m.file_path,
-  m.priority,                      // P0 first
+  m.priority,                      // P0 first — severity is never outranked by file order
   -m.count,                        // more corroboration first
   -(m.confidence ?? 0),
+  m.file_path,
   m.title.toLowerCase(),
 ];
 merged.sort((a, b) => {
@@ -293,25 +397,34 @@ const meanConf = confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length 
 
 const corr = merged.filter((m) => m.corroborated).length;
 const uniq = merged.length - corr;
+const singleHigh = merged.filter((m) => !m.corroborated && m.priority <= 1);
+const fallbackSeats = reviewers.filter((r) => r.fallback).map((r) => r.source);
+const mismatched = reviewers.filter((r) => r.modelMismatch).map((r) => `${r.source} (ran ${r.resolvedModel}, panel expected ${r.expectedModel})`);
 
 // Render.
 const L = [];
 L.push("# Quorum Review Report");
 L.push("");
-L.push(`- reviewers: ${reviewers.map((r) => r.source).join(", ")}`);
+L.push(`- reviewers: ${reviewers.map((r) => r.source).join(", ")}${missing.length ? ` · no result: ${missing.join(", ")}` : ""}`);
+L.push(`- panel: ${reviewers.length}/${panelSize} seat(s) delivered${missing.length ? ` — ${missing.length} expected seat(s) returned nothing (denominators below use ${panelSize})` : ""}`);
+if (unexpected.length) L.push(`- ⚠ results not matching any expected seat (non-seat reviewer or wrong run?): ${unexpected.join(", ")}`);
+if (fallbackSeats.length) L.push(`- ⚠ ran on a FALLBACK model (parent-session model, not the seat's pin — not an independent vote): ${fallbackSeats.join(", ")}`);
+if (mismatched.length) L.push(`- ⚠ resolved model differs from the panel's effective model: ${mismatched.join("; ")}`);
 if (meanConf !== null) L.push(`- mean verdict confidence: ${meanConf.toFixed(2)} (unweighted self-reported; not comparable across models)`);
-L.push(`- findings: ${merged.length} unique (${corr} corroborated by ≥2, ${uniq} single-reviewer)`);
+L.push(`- findings: ${merged.length} unique (${corr} corroborated by ≥2, ${uniq} single-reviewer${singleHigh.length ? `; **${singleHigh.length} single-seat P0/P1 — judge on merit or arbitrate, never drop for lack of consensus**` : ""})`);
 L.push("");
 L.push("## Panel verdict");
 L.push("");
-L.push(`- correct: ${votes.correct}/${reviewers.length} · incorrect: ${votes.incorrect}/${reviewers.length}${votes.missing ? ` · no verdict: ${votes.missing}` : ""}`);
+L.push(`- correct: ${votes.correct}/${panelSize} · incorrect: ${votes.incorrect}/${panelSize}${votes.missing ? ` · no verdict: ${votes.missing}` : ""}${missing.length ? ` · no result: ${missing.length}` : ""}`);
 L.push("");
 for (const r of reviewers) {
   const v = r.verdict.overall_correctness || "(no verdict)";
   const c = Number.isFinite(r.verdict.confidence) ? ` (conf ${r.verdict.confidence.toFixed(2)})` : "";
+  const m = r.resolvedModel ? ` [${r.resolvedModel}${r.fallback ? " — FALLBACK" : ""}]` : "";
   const e = r.verdict.explanation ? ` — ${r.verdict.explanation}` : "";
-  L.push(`- **${r.source}**: ${v}${c}${e}`);
+  L.push(`- **${r.source}**${m}: ${v}${c}${e}`);
 }
+for (const s of missing) L.push(`- **${s}**: no result (seat failed or was not spawned)`);
 L.push("");
 L.push("## Findings");
 L.push("");
@@ -322,8 +435,8 @@ if (merged.length === 0) {
     const loc = m.file_path === "(no file)" ? "(no file)" : `\`${m.file_path}\``;
     const range = m.line_start != null && m.line_end != null ? `:${m.line_start}-${m.line_end}` : "";
     const corroboration = m.corroborated
-      ? ` · **${m.count}/${reviewers.length}** (${m.reviewers.join(", ")})`
-      : ` · 1/${reviewers.length} (${m.reviewers.join(", ")})`;
+      ? ` · **${m.count}/${panelSize}** (${m.reviewers.join(", ")})`
+      : ` · 1/${panelSize} (${m.reviewers.join(", ")})`;
     const cat = m.category ? ` (${m.category})` : "";
     L.push(`### ${loc}${range} · ${renderPriority(m.priority)}${cat} · conf ${m.confidence.toFixed(2)}${corroboration}`);
     L.push("");
@@ -339,7 +452,8 @@ if (args.out) {
   writeFileSync(args.out, report);
   if (args.json) {
     writeFileSync(args.out + ".report.json", JSON.stringify({
-      reviewers: reviewers.map((r) => ({ source: r.source, ...r.verdict })),
+      reviewers: reviewers.map((r) => ({ source: r.source, seat: r.seat, resolvedModel: r.resolvedModel, fallback: r.fallback, ...r.verdict })),
+      panel: { expected: args.expected, delivered: reviewers.length, size: panelSize, missing, unexpected },
       verdict: { votes, meanConfidence: meanConf },
       findings: merged,
     }, null, 2));
@@ -348,7 +462,17 @@ if (args.out) {
   process.stdout.write(report);
   if (args.json) {
     process.stdout.write("\n\n=== merged.json ===\n");
-    process.stdout.write(JSON.stringify({ reviewers, verdict: { votes, meanConfidence: meanConf }, findings: merged }, null, 2));
+    process.stdout.write(JSON.stringify({
+      reviewers: reviewers.map((r) => ({ source: r.source, seat: r.seat, resolvedModel: r.resolvedModel, fallback: r.fallback, ...r.verdict, findings: r.findings })),
+      panel: { expected: args.expected, delivered: reviewers.length, size: panelSize, missing, unexpected },
+      verdict: { votes, meanConfidence: meanConf },
+      findings: merged,
+    }, null, 2));
   }
 }
-console.error(`dedupe: ${reviewers.length} reviewer file(s), ${merged.length} unique findings (${corr} corroborated)`);
+console.error(
+  `dedupe: ${reviewers.length}/${panelSize} reviewer file(s), ${merged.length} unique findings (${corr} corroborated, ${singleHigh.length} single-seat P0/P1)` +
+  (missing.length ? `; NO RESULT from: ${missing.join(", ")}` : "") +
+  (fallbackSeats.length ? `; FALLBACK model: ${fallbackSeats.join(", ")}` : "") +
+  (mismatched.length ? `; MODEL MISMATCH: ${mismatched.length}` : "")
+);

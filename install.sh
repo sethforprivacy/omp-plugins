@@ -19,10 +19,14 @@
 #   QUORUM_AGENTS_DIR=...   OMP_HOME=...
 #
 # Usage:
-#   ./install.sh            # install; backups created for anything replaced
+#   ./install.sh            # lint the bundle, then install; backups created for anything replaced
 #   ./install.sh --dry-run  # show targets and what would be copied, change nothing
 #   ./install.sh --no-backup
+#   ./install.sh --no-lint  # skip the pre-install consistency lint (scripts/lint.mjs)
 #   ./install.sh --help
+#
+# Seat models are swapped WITHOUT editing seat files: see presets/README.md
+# (OMP `task.agentModelOverrides`, per seat name; `omp --config presets/<file>.yml` for one run).
 
 set -euo pipefail
 
@@ -30,15 +34,27 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DRY_RUN=0
 BACKUP=1
+LINT=1
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --no-backup) BACKUP=0 ;;
-    --help|-h) sed -n '1,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-lint) LINT=0 ;;
+    --help|-h) sed -n '1,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install: unknown arg '$arg' (see --help)" >&2; exit 2 ;;
   esac
 done
+
+# Refuse to install a bundle that fails its own consistency lint (seat/schema drift, write tools
+# on a seat, a seat that can spawn helpers, category enums out of sync with dedupe, ...).
+if [ "$LINT" -eq 1 ] && [ -f "$REPO_ROOT/scripts/lint.mjs" ]; then
+  if command -v node >/dev/null 2>&1; then
+    node "$REPO_ROOT/scripts/lint.mjs" --quiet || { echo "install: lint failed — fix the seat files (or pass --no-lint to force)" >&2; exit 1; }
+  else
+    echo "install: node not found — skipping lint (scripts need Node 18+)." >&2
+  fi
+fi
 
 OMP_HOME="${OMP_HOME:-$HOME/.omp}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -133,8 +149,8 @@ if command -v node >/dev/null 2>&1; then
   for d in "${SKILL_DIRS[@]}"; do
     name="$(basename "$d")"
     prefix="$(panel_prefix "$d/SKILL.md")"
-    echo "install: active panel ($name, prefix ${prefix:-rev-quorum-}) discovered at install time:"
-    node "$SKILLS_DIR/$name/scripts/panel.mjs" --prefix "${prefix:-rev-quorum-}" \
+    echo "install: active panel ($name, prefix ${prefix:-rev-quorum-}) with EFFECTIVE models (seat pin unless an OMP task.agentModelOverrides entry applies):"
+    node "$SKILLS_DIR/$name/scripts/panel.mjs" --prefix "${prefix:-rev-quorum-}" --agents-dir "$AGENTS_DIR" 2>/dev/null \
       || echo "install: (panel.mjs failed for $name — check the seat files; see README)" >&2
   done
 else
@@ -150,4 +166,12 @@ for d in "${SKILL_DIRS[@]}"; do
     echo "install:   rm -rf \"$LEGACY_SKILL_DIR\""
   fi
 done
+if [ -f "$OMP_HOME/agent/.env" ]; then
+  perms="$(stat -f '%Lp' "$OMP_HOME/agent/.env" 2>/dev/null || stat -c '%a' "$OMP_HOME/agent/.env" 2>/dev/null || true)"
+  case "$perms" in
+    600|400|"") ;;
+    *) echo "install: NOTE — $OMP_HOME/agent/.env is mode $perms; provider keys live there: chmod 600 \"$OMP_HOME/agent/.env\"" ;;
+  esac
+fi
 echo "install: done. In an OMP session, mention 'panel review'/'quorum' or 'security review' to use the skills."
+echo "install: to run a seat on another model without editing files, see presets/README.md (omp --config presets/<file>.yml)."

@@ -7,281 +7,183 @@ panel_prefix: rev-sec-
 # Security-quorum (focused security review)
 
 Run a **small, focused** change or attack surface past a **panel** of independent security
-reviewers (each pinned to a different remote model), spawned in parallel, then dedupe the
-findings by consensus and bring the report back **into this session**.
+reviewers (each pinned to a different remote model), spawned in parallel, then dedupe by
+consensus and bring the report back **into this session**. It exists so a single reviewer —
+or the author's own bias — never decides alone whether a change is safe. Scope stays small
+on purpose; if it grows past one surface, split it into separate passes.
 
-This is the security pass: it exists so a single reviewer — or the author's own bias — never
-decides alone whether a change is safe. Scope stays **small and focused on purpose**; if the
-scope grows past one surface, split it and run separate passes.
+The scripts are the shared bundle scripts, installed at
+`~/.omp/agent/skills/security-quorum/scripts/` — always call them by absolute path.
 
-## Active panel — discover dynamically, never hardcode
+## The panel is dynamic — read it, never hardcode it
 
-The panel is defined by `rev-sec-*.md` agent files in `~/.omp/agent/agents/` (the
-`rev-sec-` family, separate from the general `rev-quorum-*` panel). Each file is one seat;
-its `model:` frontmatter is the model that seat runs. **Never hardcode the seat list or
-models in this skill.** Always read the live panel:
+Seats are the `rev-sec-*.md` agent files in `~/.omp/agent/agents/` (a separate family from
+`rev-quorum-*`). Each file's `model:` is the calibrated default; OMP's
+`task.agentModelOverrides.<seat>` can swap it without touching files (see "Swapping seat
+models"). `panel.mjs` prints the **effective** model per active seat:
 
 ```
 node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
 ```
 
-Changing the panel = editing those files only:
-
-- **Swap a model:** edit one seat's `model:` line.
-- **Add a seat:** copy an existing `rev-sec-*.md`, rename the file + `name:`, set its `model:`.
-- **Retire a seat:** delete the file, or set `disable: true` to keep it for re-enabling.
-- **Enable a parked seat:** remove `disable: true`, route-check it (§4), then confirm the
-  panel with `panel.mjs --prefix rev-sec-`.
-
-Current seat note (2026-08-20): the active panel is `rev-sec-kimi` (kimi-k3, `max`),
-`rev-sec-glm` (glm-5.3, `xhigh`), and `rev-sec-grok` (grok-4.6, `medium`, added off the
-seeded-defect benchmark — see `docs/benchmark.md`). `rev-sec-gem` is **parked on merit**
-(0 detections across 8 defective-sample benchmark runs while voting `correct` at high
-confidence) — it routes fine; do not re-enable without new detection evidence.
-
-Seat prompt state as of 2026-08-20 (route-checked clean same day):
-
-- **`cwe` is back on all three security seats**, as a comma-separated **string**
-  (`"CWE-20, CWE-345"`). The old *untyped-array* form is what broke Gemini (400, empty body)
-  and z-ai (402 at spawn); the string form is safe on all three providers. `rev-sec-kimi` was
-  converted array→string for uniformity.
-- Every seat carries an **`<exclusions>` noise-suppression block**: no DoS / rate-limit /
-  resource-exhaustion findings without a concrete security consequence; no generic input
-  validation without a proven source→sink impact; no open redirects off auth flows; no
-  theoretical timing channels; no dependency vulns the diff didn't introduce; no
-  attacker-path-free hardening preferences. **The focus overrides an exclusion when it names
-  that class explicitly** — say so in `--focus` if you want (e.g.) DoS in scope. An excluded
-  class also comes back when it composes with an in-scope class into a concrete exploit path.
-- Every seat carries the hardened one-finding-per-yield output contract and a
-  prompt-injection guard line in its intro.
-- Findings may carry an optional `category`: `weak-crypto`, `secret-handling`,
-  `input-validation`, `integrity-spoofing`, `fail-open`, `supply-chain`, `concurrency`,
-  `fee-amount`, `other`. `dedupe.mjs` clusters on it.
+Detection tuning lives in the seat prompts, not here: `<detection-criteria>` (what to hunt),
+`<exclusions>` (noise classes suppressed unless the focus names them) and `<precedents>`
+(what is safe by default). A run's `--focus` overrides an exclusion when it names the class —
+tighten the focus before loosening a seat.
 
 ## When to run
 
-- User asks for a "security review" / "security pass" / "sec review" / "security-quorum" /
-  "threat check", or says "is X safe?" about a concrete change.
-- Scope: ONE focused surface — a single file, function, dependency, handler, config path,
-  or a small diff. If the user names a whole feature or repo, narrow to the risky slice
-  (new entry points, new data flows, auth/token/crypto/parsing code) before running.
-- Not for whole-repo sweeps: those are `quorum-review` territory or the standalone weekly
-  audit prompts.
+- User asks for a "security review" / "security pass" / "sec review" / "threat check", or
+  "is X safe?" about a concrete change.
+- Scope: ONE surface — a file, function, dependency, handler, config path, or small diff. If
+  the user names a whole feature or repo, narrow to the risky slice (new entry points, new
+  data flows, auth/token/crypto/parsing code) before running. Whole-repo sweeps are
+  `quorum-review` territory or the standalone audit prompts.
 
-## Protocol
+## Protocol — do these steps in order, once each
 
-Follow these steps in order. The scripts hold the deterministic logic; you orchestrate
-(the scripts are the shared ones from the quorum-review bundle — same CLI).
+### 1. Focus + scope + attacker model
+One to three sentences: WHAT surface is under review, WHO the attacker is (untrusted user,
+remote peer, network service, config/import file, dependency), and what "safe" means. The
+attacker model is the most important context the seats get. If the diff is bigger than one
+surface, say so and narrow.
 
-### 1. Focus + scope (write it down first)
-One to three sentences: WHAT surface is under review, WHO the attacker model is
-(untrusted user, remote peer, network service, config/import file, dependency), what "safe /
-across the line" means. Pull from the user's stated ask. Scope must be narrow — say so
-explicitly if the diff is bigger than one surface.
+### 2. Snapshot the panel
+```
+node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec- --json > /tmp/sec-quorum-panel.json
+node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
+```
+The printed names are the ONLY valid `agent:` values for this run; the JSON feeds
+`dedupe.mjs --panel`. Fewer than 2 seats ⇒ stop, the panel cannot quorum.
 
-### 2. Build the context packet
+### 3. Build the context packet — exactly once per round
 ```
 node ~/.omp/agent/skills/security-quorum/scripts/packet.mjs \
   --focus "<focus incl. attacker model>" \
-  --summary "<3-8 factual bullets: what the change is, trust boundaries, prior findings>" \
+  --summary "<3-8 factual bullets: the change, trust boundaries, prior findings>" \
   --out /tmp/sec-quorum-packet.md
 ```
-- Auto-detects git/jj and diffs the working tree. Non-VCS cwd: pass `--files <abs paths>`.
-- Smaller is better: `--limit` (default 100000) can be lowered to keep the packet tight.
-- Put trust-boundary notes in `--summary` — the attacker model is the most important context
-  the seats get.
-- Packet shaping (added 2026-08-20, pending live validation):
-  - `--budget <bytes>` caps the **whole packet** (default `300000`, `0` disables), where
-    `--limit` caps a single file section (applied first). A security pass is meant to be
-    small — lower both. Over budget, the largest patches are dropped and replaced with a
-    "read the file directly" note; the files stay in the changed-files table, and focus,
-    summary and omission notes are never dropped.
-  - Lockfiles and generated files are excluded from the embedded diff by default (still
-    listed). `--all-files` puts them back — do that when the *supply chain* is the surface
-    under review, since a lockfile change is exactly the finding you want then.
-  - Deleted files' patches are stripped and listed by name (a deletion-only EDIT to a living
-    file is kept — a removed check is exactly what a security pass must see).
-  - Untracked files arrive **embedded in full**; the packet tells seats not to re-read them.
-  - The final stderr line reports total packet bytes and omission counts — check it, and note
-    any dropped patch in the report.
+- Smaller is better: lower `--limit` (per file) and `--budget` (whole packet) for a tight pass.
+- Read the last stderr line and carry it into the report: bytes, `rev`, `fingerprint`, and
+  every omission. Note especially **secret-like files withheld by name** (`.env*`, keys,
+  `*token*`, …) — withheld from the packet so the credential never ships to the providers;
+  if the surface under review IS such a file, pass `--all-files` deliberately — and
+  `TRUNCATED` files (seats must read those from disk; raise `--limit` if the cut lands in the
+  code under review).
+- `--all-files` also keeps lockfiles in the diff — do that when the *supply chain* is the
+  surface, since a lockfile change is exactly the finding you want then.
+- Deletion-only edits to living files stay in the packet (a removed check is what a security
+  pass must see); only whole-file deletions are listed by name.
 
-### 3. Read the panel and spawn ALL seats in ONE parallel batch
-```
-node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
-```
-
-**The panel is the `rev-sec-*` seat agents — nothing else.** Bundled agents (`scout`,
-`reviewer`, `security-reviewer`, `task`, `sonic`) run on your local stack and are NOT panel
-members; a "panel" of them is not independent. A failed seat is reported, not replaced.
-
-Then one `task` call with one entry per seat — same batch, so they run concurrently:
+### 4. Spawn ALL seats in ONE `task` call
+One `task` call, one `tasks[]` entry per seat from step 2, identical task text:
 
 ```
 task: Review the security scope described in the packet at /tmp/sec-quorum-packet.md.
       Read the packet, then the files it lists, per your own security reviewer
       instructions. Report only findings you can prove with a source->sink path.
       Evaluate independently — do not assume agreement with other reviewers.
-agent: <seat name from panel.mjs>
+agent: <seat name, verbatim from panel.mjs>
 name:  <seat name>
 ```
 
-- `agent:` MUST be the exact seat name printed by `panel.mjs --prefix rev-sec-`
-  (e.g. `rev-sec-kimi`). Copy it verbatim.
-- Do NOT include disabled/no-longer-active seats. Do NOT spawn the same seat twice.
-- If a seat fails to spawn (route/auth block, timeout), record the failure per §5 and
-  continue with the working seats. Never substitute a bundled/local agent.
+Hard rules — each has been violated in a real run:
+- `agent:` MUST be set on every entry, to the exact seat name. Bundled/local agents (`scout`,
+  `reviewer`, `security-reviewer`, `task`, `sonic`) are NOT panel members.
+- ONE `task` call per round; never two spawn calls in one message, never the same seat twice,
+  never a parked seat. Packet by absolute path, never inline, never a `local://` URI.
+- A failed seat is reported, not replaced. **Bounded retry:** a *transient* failure (400 empty
+  body, 402, 429, timeout, runtime exit) earns exactly ONE solo re-spawn outside the batch; a
+  second failure is a failed seat. Structure problems are never retried.
 
-**Bounded retry policy** (added 2026-08-20, pending live validation). A seat that fails with a
-*transient* error — 400 with an empty body, 402, timeout — is retried **once, solo** (its own
-spawn, outside the batch; concurrency aggravates these flakes). A second failure records the
-seat as failed for this run. Never more than one retry per seat per run, and never substitute
-another agent. This bounds the observed 402-flap waste (the glm-5.3 security sweep needed 6
-spawns for one result — see `docs/thinking-levels.md`).
+### 5. Collect — save every delivered result verbatim
+Save each result to `~/.omp/security-quorum/<seat>-<timestamp>.json` as the **raw
+`result.data` object exactly as delivered**, plus top-level `"seat"`, `"resolvedModel"` and,
+when shown, `"resolvedModelIsFallback"`. Never paraphrase or re-key findings. Keep this
+directory separate from `~/.omp/quorum-review/` so the two pass types never mix.
 
-### 4. Route-check before enabling a seat (parked/new models)
-1. Edit the seat file: set `model:`, remove `disable: true`.
-2. Spawn the seat with a trivial "reply OK" task (5–15 s). A `404 … guardrail restrictions
-   and data policy` error means account policy blocks the vendor — leave it disabled.
-3. Only then leave it enabled and re-run `panel.mjs --prefix rev-sec-` to confirm.
-
-### 5. Collect results
-Save each delivered result to `~/.omp/security-quorum/<seat>-<timestamp>.json` (raw JSON as
-delivered). Seats that fail to return JSON (route error, auth/policy block, timeout,
-text-only reply) are recorded as failures — save nothing for them.
-
-Verify provenance: the result must be from the `agent` you spawned — the seat name. Any
-delivered review from a bundled/local agent is NOT a panel seat: discard it from the panel
-set, re-run that seat via the protocol, and note the violation in the report.
-
-Some models return a verdict + explanation but an **empty `findings`**
-array. Treat those as verdict-only seats: still save the result (verdict/explanation show
-in the report), but their issues don't enter consensus clustering. Don't silently rerun them
-for structure — note it and move on.
-
-Note: kimi-k3 was historically verdict-only, but a prompt hardening (2026-08-14 — a
-one-finding-per-yield contract in the `rev-sec-kimi` seat `<output>` section) fixed it; it
-now yields full structured findings reliably. The old "kimi returns empty findings" intel is
-stale — do not re-disable or bypass the seat on that basis. That same contract was propagated
-to every seat on 2026-08-20 (pending live validation).
+Provenance check, per seat, before saving:
+- Result came from the seat you spawned; anything from a non-seat agent is discarded and noted.
+- Resolved model equals the seat's effective model in `/tmp/sec-quorum-panel.json`. A
+  **fallback** onto your session's model, or a different model, is not an independent vote:
+  record the seat as failed (keep the file, name the reason).
+- `schema_violation` after a full review: the payload inside the error is the seat's output —
+  save it with `"schema_violation": true` and treat the seat as delivered. Prose with no
+  yields, or a verdict with empty `findings`, is **verdict-only**: save, note, do not re-run.
 
 ### 6. Dedupe + rank by consensus
 ```
 node ~/.omp/agent/skills/security-quorum/scripts/dedupe.mjs \
-  ~/.omp/security-quorum/<seat>-<ts>.json ... [--out ~/.omp/security-quorum/report.md]
+  ~/.omp/security-quorum/<seat>-<ts>.json ... \
+  --panel /tmp/sec-quorum-panel.json --out ~/.omp/security-quorum/report-<ts>.md
 ```
-Clusters the same issue reported by different reviewers; shows `→ n/<total> (seats)`
-corroboration, P-priority, confidence; aggregates the panel verdict.
-
-Clustering is category-aware as of 2026-08-20: same `category` strengthens a cluster,
-different categories only cluster on an exact title match. `cwe` is rendered per finding. The
-mean-confidence line is annotated "(unweighted self-reported; not comparable across models)" —
-treat it that way (glm's confidence dropped as depth rose; gem's is flat near 1.0) and never
-rank security findings by confidence alone.
+Expected seats with no result show as "no result" and denominators are `n/<active seats>`;
+model mismatches are flagged. Ranking is priority first, then corroboration, then confidence
+— a specific single-seat P0/P1 is called out, never buried. `cwe` is rendered per finding.
+Self-reported confidence is not comparable across models; never rank security findings by it.
 
 ### 7. Present and act — in this session, immediately
-Show the deduped report, then:
+Show the report (with the packet stderr line and any provenance warnings), then:
 
 | Finding | Response |
 |---|---|
-| P0/P1 or corroborated (≥2 seats) | Fix it now, verify, then run the **targeted verify pass** below |
-| Single-seat P0/P1 | Not yours to adjudicate alone — send it to the **arbitration round** first |
-| Single-seat finding (P2/P3) | Judge on merit (read the cited path yourself); fix if defensible, else note and move on |
-| Panel verdict split | Surface it, then run the **arbitration round** (next section) |
+| P0/P1 or corroborated (≥2 seats) | Fix now; verify; then the **targeted verify pass** |
+| Single-seat P0/P1 | Not yours to adjudicate alone — **arbitration round** first |
+| Single-seat P2/P3 | Judge on merit (read the cited path yourself); fix if defensible, else note why not |
+| Panel verdict split | Surface it, then the **arbitration round** |
 
-**Targeted verify pass** (added 2026-08-20, pending live validation). After fixing a finding,
-do NOT re-run the whole panel by default. Instead:
+**Targeted verify pass.** After a fix: small packet scoped to it (`--focus "verify fix of:
+<title>"`, original finding + attacker model + exactly what changed in `--summary`, lower
+`--budget`; its `fingerprint` must differ from the original run), spawned only to the seats
+that reported it (substitute the deepest active seat — `rev-sec-kimi`/`rev-sec-glm` — if a
+reporter failed). Full-panel re-runs only for large/risky fixes or on request.
 
-1. Rebuild a SMALL packet scoped to the fix: `--focus "verify fix of: <finding title>"`,
-   `--summary` carrying the original finding text and exactly what was changed (keep the
-   attacker model in it), and a lowered `--budget`.
-2. Spawn **only the seats that reported the finding** (if a reporting seat failed this run,
-   substitute the deepest active seat — `rev-sec-kimi` at `max` / `rev-sec-glm` at `xhigh`
-   per `docs/thinking-levels.md`).
-3. Full-panel re-runs are for large or risky fixes, or when the user asks.
-
-Finish by stating what the panel changed, what you judged and ignored (and why), and the
-remaining risk. Bring severity honestly: do not inflate borderline items, and do not bury a
-corroborated P1.
+Finish with what the panel changed, what you judged and ignored (and why), which seats
+delivered, and the remaining risk. Bring severity honestly: never inflate a borderline item,
+never bury a corroborated P1.
 
 ## Arbitration round (contested findings)
 
-Added 2026-08-20 (pending live validation). Runs **at most ONCE per review**, and only when
-triggered:
+At most ONCE per review, only when the verdict splits or a **P0 or P1** is uncorroborated.
+Never for single-seat P2/P3.
 
-- the panel verdict splits (both `correct` and `incorrect` present), **or**
-- a **P0 or P1** finding is uncorroborated (1 seat).
+1. **Mini-packet** (`/tmp/sec-quorum-arbitration.md`): the contested finding(s) verbatim; the
+   cited code ±20 lines read from disk; each seat's verdict + explanation with seat and model
+   names replaced by "Reviewer 1..N".
+2. **Spawn set:** the reporting seat plus two non-reporting active seats (all active if only
+   3). ONE `task` call. Seats only.
+3. **Task text:**
+   ```
+   task: Evaluate ONLY the contested finding(s) in /tmp/sec-quorum-arbitration.md, against that
+         mini-packet and the code it cites. Return overall_correctness: "incorrect" if you
+         now judge the finding a real defect (AGREE), or "correct" if you do not (DISAGREE),
+         with a 1-3 sentence explanation. Findings yields are optional and only for
+         corrections to the contested finding itself.
+   agent: <seat name>
+   name:  <seat name>
+   ```
+4. ≥2 AGREE ⇒ corroborated, fix. Majority DISAGREE ⇒ "disputed — rejected in arbitration",
+   still shown with reasoning. Never a second round; a rejected security finding that vanishes
+   from the report is exactly the failure this section prevents.
 
-Never arbitrate P2/P3 single-seat findings — judge those on merit as before. (The glm-5.3
-benchmark's real txid defect was a single-seat P2 that different levels rated P2/P3 or missed
-entirely; that is a judgement call, not an arbitration case.)
+## Degraded panels are normal — report them, never hide them
 
-**1. Build a mini-packet** (a small markdown file, e.g. `/tmp/sec-quorum-arbitration.md`):
+- **Some seats fail:** name them and the reason; continue. Never pad with local agents.
+- **<2 seats deliver:** no consensus signal — show what came back and say so.
+- **All seats fail:** stop; report the failing model IDs (routing/policy, not the code).
+- Deep security seats legitimately run 10–50 minutes. A seat that never yields is the failure,
+  not a slow one; OMP's `task.maxRuntimeMs` is the backstop if you want one.
 
-- the contested finding(s) **verbatim** — title, body, location;
-- the cited code slice, ±20 lines, read from disk (not from memory);
-- each seat's verdict + explanation with seat and model names **replaced by
-  "Reviewer 1..N"**. Anonymize — naming the models anchors the arbitrators on model
-  reputation instead of the attack path. Chatham House rules.
+## Swapping seat models on command
 
-**2. Spawn set:** the reporting seat plus two non-reporting active seats (with only 3 seats
-active, that is all of them). ONE parallel batch. **Seats only** — the same rule as §3.
+Routing is fixed at spawn (no per-call model parameter on `task`). Set OMP's
+`task.agentModelOverrides.<seat>` to a `provider/model[:thinking-level]` selector — per
+session via `omp --config <overlay.yml>`, per repo in `<repo>/.omp/config.yml`, or globally in
+`~/.omp/agent/config.yml` / the `/agents` hub. Overlays and rules: the bundle's
+`presets/README.md`. Step 5's provenance check proves which model actually reviewed.
 
-**3. Task text** — instruct each seat:
+## Tooling reference
 
-```
-task: Evaluate ONLY the contested finding(s) in /tmp/sec-quorum-arbitration.md, against that
-      mini-packet and the code it cites. Return overall_correctness: "incorrect" if you
-      now judge the finding a real defect (AGREE), or "correct" if you do not (DISAGREE),
-      with a 1-3 sentence explanation. Findings yields are optional and only for
-      corrections to the contested finding itself.
-agent: <seat name from panel.mjs --prefix rev-sec->
-name:  <seat name>
-```
-
-**4. Outcome mapping:**
-
-| Arbitration result | Action |
-|---|---|
-| ≥2 seats AGREE | Treat the finding as corroborated — fix it |
-| Majority DISAGREE | Mark it "disputed — rejected in arbitration"; still show it, with the reasoning, in the final summary |
-
-Never a second round. Record the arbitration outcome in the final summary either way — a
-rejected security finding that vanishes from the report is exactly the failure this section
-exists to prevent.
-
-*Why:* single-seat P0/P1s and verdict splits were previously adjudicated by the local
-orchestrator alone — the exact failure mode quorum exists to avoid. Public multi-model
-implementations (Star Chamber's debate mode, multi-model-debate) show that one anonymized
-round is enough to change verdicts.
-
-## Handling failures (degraded panel)
-
-- **Some seats fail:** note "seat unavailable (model X blocked/failed)" and continue with the
-  working remainder. Say so — never silently run a smaller panel.
-- **<2 seats succeed:** no consensus signal — tell the user the panel can't quorum, show what
-  did come back, and suggest checking the model routes (they churn; see §4).
-- **All seats fail:** stop and report the failing model IDs. Likely causes are
-  account/gateway routing or provider-side policy, not the code being reviewed.
-
-## Tooling notes
-
-- Scripts live in `~/.omp/agent/skills/security-quorum/scripts/` (shared with the
-  `quorum-review` skill — same files, installed by the bundle installer) — use absolute
-  paths (cwd varies by project).
-- `packet.mjs` flags: `--focus`, `--summary`, `--files`, `--limit <bytes>`,
-  `--budget <bytes>` (global packet cap, default `300000`, `0` disables), `--all-files`
-  (keep lockfiles/generated files in the embedded diff — excluded by default), `--out`,
-  `--json`. Diffs are per file; deleted files' patches are stripped and listed by name;
-  untracked files are embedded in full (seats are told not to re-read them); over-budget
-  packets drop the largest patches with a "read the file directly" note; the final stderr
-  line reports total packet bytes and omission counts.
-- `dedupe.mjs`: pass the specific result files from this run. `--dir <path>` scans all
-  `*.json` there (its own `*.report.json` artifacts are auto-excluded) — use it only on a
-  directory holding exactly this run's seat files. Keep `~/.omp/security-quorum/` separate
-  from `~/.omp/quorum-review/` so the two pass types never mix. Clustering is category-aware
-  and `cwe` is rendered per finding (§6).
-- Detection tuning lives in the `rev-sec-*.md` seat prompts: `<detection-criteria>` for what
-  to look for, `<exclusions>` for the noise classes to suppress. Distilled from the
-  security-context audit findings corpus; iterate there, not in this skill file. If the panel
-  keeps reporting a class you care about as out of scope, name it in `--focus` (which
-  overrides the exclusion) before loosening the block.
+Same scripts and flags as quorum-review (`panel.mjs --prefix rev-sec-`, `packet.mjs`,
+`dedupe.mjs --panel`); see that skill's tooling reference. Detection tuning happens in the
+`rev-sec-*.md` seat prompts — iterate there, re-run `install.sh`, never in this file.

@@ -7,236 +7,198 @@ panel_prefix: rev-quorum-
 # Quorum (panel) review
 
 Run the user's current work past a **panel** of independent reviewer agents (each pinned to a
-different model), spawned **in parallel**, then dedupe the findings across reviewers, rank by
-consensus, and present the report back **into this session**.
+different remote model), spawned **in parallel**, then dedupe the findings across reviewers,
+rank by consensus, and present the report back **into this session**. It exists so one clumpy
+reviewer — or your local model — never decides alone whether work is ready to ship.
 
-This is the "last pass" gate: it exists so one clumpy reviewer (or your local model) never
-decides alone whether work is ready to ship.
+The scripts hold the deterministic logic; you orchestrate. Scripts live in
+`~/.omp/agent/skills/quorum-review/scripts/` — always call them by absolute path.
 
-## Active panel — discover dynamically, never hardcode
+## The panel is dynamic — read it, never hardcode it
 
-The panel is defined by `rev-quorum-*.md` agent files in `~/.omp/agent/agents/`. Each file is
-one seat; its `model:` frontmatter is the model that seat runs. **Never hardcode the seat list
-or models in this skill.** Always read the live panel:
+Seats are the `rev-quorum-*.md` agent files in `~/.omp/agent/agents/`. Each file is one seat;
+its `model:` is the calibrated default. OMP's `task.agentModelOverrides.<seat>` setting can
+swap a seat's model without touching files (see "Swapping seat models" below). `panel.mjs`
+prints the **effective** model per active seat:
 
 ```
 node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
 ```
 
-Changing the panel = editing those files only:
-
-- **Swap a model:** edit one seat's `model:` line (e.g. to add ZDR/TEE routes when they exist).
-- **Add a seat:** copy an existing `rev-quorum-*.md`, rename the file + `name:`, set its `model:`.
-- **Retire a seat:** delete the file, or set `disable: true` to keep it for re-enabling.
-- **Re-add a model later:** un-disable its seat / drop a new file back in.
+Add a seat: copy a `rev-quorum-*.md`, rename file + `name:`, set `model:`. Park one:
+`disable: true` (or OMP `task.disabledAgents`). Never edit this skill to change the panel.
 
 ## When to run
 
 - User says "panel review", "quorum", "review pass", "last pass", "get this across the line",
   "have the panel look at X", or similar.
-- Default scope: this session's uncommitted changes (git/jj) or the change set the agent made
-  this session. If the scope is genuinely ambiguous, ask once; otherwise just run it.
+- Default scope: this session's uncommitted changes (git/jj) or the change set made this
+  session. If the scope is genuinely ambiguous, ask once; otherwise run.
+- Docs-only or whitespace-only diffs rarely need four remote reviewers: say so and confirm
+  before spending the panel on them.
 
-## Protocol
-
-Follow these steps in order. The scripts hold the deterministic logic; you orchestrate.
+## Protocol — do these steps in order, once each
 
 ### 1. Focus (write it down first)
-One to three sentences: what work is being reviewed, what "done / across the line" means, and
-any constraints the panel must respect. Pull from the user's stated goal and current task.
+One to three sentences: what is being reviewed, what "done / across the line" means, and any
+constraints the panel must respect.
 
-### 2. Build the context packet
+### 2. Snapshot the panel
+```
+node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs --json > /tmp/quorum-panel.json
+node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
+```
+The printed names are the ONLY valid `agent:` values for this run, and the JSON is what
+`dedupe.mjs --panel` uses later for denominators and the provenance check. If it lists fewer
+than 2 seats, stop and tell the user the panel cannot quorum.
+
+### 3. Build the context packet — exactly once per round
 ```
 node ~/.omp/agent/skills/quorum-review/scripts/packet.mjs \
   --focus "<focus>" \
-  --summary "<3-8 factual bullets of what was done this session: files, changes, decisions>" \
+  --summary "<3-8 factual bullets: files, changes, decisions, context not visible in the diff>" \
   --out /tmp/quorum-packet.md
 ```
-- Default: auto-detects git or jj and diffs the working tree (`git diff HEAD` / `jj diff --git`).
-- Non-VCS cwd: pass `--files <abs path,abs path,...>` instead (packet embeds file contents).
-- Keep the packet honest: any context that matters but isn't in the diff (recent decisions,
-  API contracts, why a shortcut was taken) belongs in `--summary`.
-- Packet shaping (added 2026-08-20, pending live validation):
-  - `--budget <bytes>` caps the **whole packet** (default `300000`, `0` disables), where
-    `--limit` caps a single file section (default 100000, applied first). Over budget, the
-    largest patches are dropped and replaced with a "read the file directly" note — the files
-    stay in the changed-files table, so nothing disappears silently. Focus, summary, the
-    changed-files table and the omission notes are never dropped.
-  - Lockfiles and generated files are excluded from the embedded diff by default (still
-    listed in the changed-files table); `--all-files` puts them back.
-  - Deleted files' patches are stripped from the diff and listed by name instead (a
-    deletion-only EDIT to a living file is kept — removed code is review-critical).
-  - Untracked files arrive **embedded in full**; the packet tells seats not to re-read them
-    from disk.
-  - The final stderr line reports total packet bytes and omission counts — read it, and say
-    so in the report if large patches were dropped.
+- Auto-detects git/jj and diffs the working tree (`git diff HEAD` / `jj diff --git`);
+  untracked files are embedded in full. Non-VCS cwd: `--files <abs,abs,...>`.
+- Read the last stderr line and carry it into your report: total bytes, `rev`, the
+  `fingerprint` (sha256 of exactly what the seats will see), and every omission — delete-only
+  patches, lockfiles/generated files, **secret-like files (withheld by name)**, over-budget
+  drops, and `TRUNCATED` files (cut at `--limit`, default 100000 bytes/file — seats must read
+  those from disk; raise `--limit` if the cut lands in the code under review).
+- `--budget <bytes>` caps the whole packet (default 300000; `0` disables). `--all-files` keeps
+  lockfiles AND allows secret-like names to be embedded — only when the focus needs them.
+- Do not rebuild the packet between spawn and dedupe; seats read it at spawn time.
 
-### 3. Read the panel and spawn ALL seats in ONE parallel batch
-```
-node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
-```
-
-**The panel is the seat agents — nothing else.** Each `rev-quorum-*` seat is pinned to a
-remote model (`model:` in its file) so its verdict is independent of your local model. That
-independence IS the point of quorum. Bundled agents (`scout`, `reviewer`, `security-reviewer`,
-`task`, `sonic`) run on your local stack and are NOT panel members; a "panel" of them is not a
-panel at all.
-
-Then one `task` call with one entry per seat — same batch, so they run concurrently:
+### 4. Spawn ALL seats in ONE `task` call
+One `task` call, one `tasks[]` entry per seat from step 2, identical task text:
 
 ```
 task: Review the changes described in the packet at /tmp/quorum-packet.md.
       Read the packet, then the files it lists, per your own reviewer instructions.
       Return your structured findings and verdict. Evaluate independently —
       report only what you can prove; do not assume agreement with other reviewers.
-agent: <seat name from panel.mjs>
+agent: <seat name, verbatim from panel.mjs>
 name:  <seat name>
 ```
 
-- `agent:` MUST be the exact seat name printed by `panel.mjs` (e.g. `rev-quorum-glm`). Copy it
-  verbatim; do not paraphrase or re-derive it.
-- NEVER set `agent:` to `scout`, `reviewer`, `task`, `security-reviewer`, or any other
-  non-seat agent for a panel review. If you catch yourself about to, stop — you are off
-  protocol. Read the seat list from `panel.mjs` and use those names.
-- Do NOT include disabled/no-longer-active seats. Do NOT spawn the same seat twice.
-- If a seat fails to spawn (route/auth block, timeout), record the failure per §4 and continue
-  with the working seats. Do NOT replace a failed seat with a local/bundled agent — that
-  silently shrinks the panel's independence and fakes a quorum that did not happen.
+Hard rules — each of these has been violated in a real run:
+- `agent:` MUST be set on every entry, to the exact seat name. An entry without `agent:` runs
+  on the generic `task` agent on YOUR model; `scout`, `reviewer`, `security-reviewer`, `task`,
+  `sonic` and every other bundled/local agent are NOT panel members. A "panel" of them is not
+  a panel.
+- ONE `task` call per round. Never emit two spawn calls in one message (that doubles the panel
+  and the cost); never spawn the same seat twice; never include parked seats.
+- Pass the packet as the absolute path above, never inline and never as a `local://` URI.
+- A failed seat is reported, not replaced. **Bounded retry:** a *transient* failure (400 with
+  empty body, 402, 429, timeout, runtime exit) earns exactly ONE solo re-spawn of that seat,
+  outside the batch. A second failure is a failed seat. Structure problems (verdict-only,
+  schema violation, prose instead of yields) are never retried.
 
-**Bounded retry policy** (added 2026-08-20, pending live validation). A seat that fails with a
-*transient* error — 400 with an empty body, 402, timeout — is retried **once, solo** (its own
-spawn, not in the batch; concurrency aggravates these flakes). A second failure records the
-seat as failed for this run. Never more than one retry per seat per run, and never substitute
-another agent for it. This keeps the observed 402-flap waste bounded (the glm-5.3 sweep burned
-~9 spawns on retries — see `docs/thinking-levels.md`).
+### 5. Collect — save every delivered result verbatim
+Save each delivered result to `~/.omp/quorum-review/<seat>-<timestamp>.json` as the **raw
+`result.data` object exactly as delivered**, with three fields added at the top level:
+`"seat"`, `"resolvedModel"` (the model the harness reports the spawn ran on) and, when shown,
+`"resolvedModelIsFallback"`. Never paraphrase, re-type, summarize, or re-key the findings —
+a hand-transcribed file loses `priority`/`file_path` and degrades clustering.
 
-### 4. Collect results
-Save each delivered result to `~/.omp/quorum-review/<seat>-<timestamp>.json` (raw JSON as
-delivered). If a seat failed to return JSON (route error, auth/policy block, timeout, text-only
-reply), record it as a failure and save nothing for it.
+Provenance check, per seat, before you save:
+- The result must come from the seat you spawned (name matches). Anything from a non-seat
+  agent is discarded from the panel set and noted as a violation.
+- The resolved model must be the seat's effective model from `/tmp/quorum-panel.json`. A
+  result marked as a **fallback** onto your session's model, or on a different model, is NOT an
+  independent vote: record the seat as failed (keep the file, name the reason).
+- A seat that finished with `schema_violation` still did the work — the payload inside the
+  error is its output. Save that payload, add `"schema_violation": true`, and treat the seat
+  as delivered (dedupe parses permissively). A seat that returned prose and no yields at all,
+  or an empty `findings` with a verdict, is **verdict-only**: save it, note it, do not re-run
+  it for structure.
 
-Verify the delivered results before saving: the result must be from the `agent` you spawned —
-the seat name. If any delivered review came from a bundled/local agent (e.g. `scout`,
-`reviewer`, `task`), it is NOT a panel seat: discard it from the panel set, re-run that seat
-via the protocol, and note the violation in the report. A panel report must contain zero
-non-seat reviewers.
-
-Some models (observed: seed-1.6-flash; kimi-k3 pre-2026-08-14) return a verdict + explanation but an **empty `findings` array** — or balloon the reply instead of yielding structured findings. Treat those as verdict-only seats: still save the
-result (their verdict/explanation show in the panel report), but their issues won't enter
-consensus clustering. Don't silently rerun them for structure — note it and move on.
-
-As of 2026-08-20 every seat carries the hardened **one-finding-per-yield output contract**
-(propagated from `rev-sec-kimi`, where it fixed exactly this empty-findings behavior on
-2026-08-14) plus a prompt-injection guard line in its intro. Pending live validation, so a
-verdict-only seat is still possible — record it, don't retry it for structure.
-
-### 5. Dedupe + rank by consensus
+### 6. Dedupe + rank by consensus
 ```
 node ~/.omp/agent/skills/quorum-review/scripts/dedupe.mjs \
-  ~/.omp/quorum-review/<seat>-<ts>.json ... [--out ~/.omp/quorum-review/report.md]
+  ~/.omp/quorum-review/<seat>-<ts>.json ... \
+  --panel /tmp/quorum-panel.json --out ~/.omp/quorum-review/report-<ts>.md
 ```
-Clusters the same issue reported by different reviewers; shows each finding with
-`→ n/<total> (seats)` corroboration, priority, confidence; aggregates the panel verdict.
+`--panel` makes every expected seat count: seats with no result appear as "no result" and
+denominators are `n/<active seats>`; it also flags any result whose resolved model differs
+from the panel. Findings are ranked **priority first**, then corroboration, then confidence:
+consensus promotes a finding but never buries a specific single-seat P0/P1 (the report calls
+those out). Clustering is category-aware and tolerant of absolute vs relative paths. The
+mean-confidence line is self-reported and not comparable across models — never rank by it.
 
-Findings may carry an optional `category` field (`logic`, `concurrency`, `api-contract`,
-`data-handling`, `error-handling`, `test-gap`, `perf`, `other`); clustering is category-aware
-as of 2026-08-20 — same category strengthens a cluster, different categories only cluster on
-an exact title match. The mean-confidence line is annotated "(unweighted self-reported; not
-comparable across models)" — treat it as such, and never rank findings by it alone.
-
-### 6. Present and act — in this session, immediately
-Show the deduped report, then:
+### 7. Present and act — in this session, immediately
+Show the report (including the packet stderr line and any provenance warnings), then:
 
 | Finding | Response |
 |---|---|
-| P0 or corroborated (≥2 seats) | Fix it now; verify; then run the **targeted verify pass** below |
-| Single-seat P0 | Not yours to adjudicate alone — send it to the **arbitration round** first |
-| Single-seat finding (P1–P3) | Judge on merit; fix if defensible, else note and move on |
-| Panel verdict split | Surface it, then run the **arbitration round** (next section) |
+| P0 or corroborated (≥2 seats) | Fix now; verify; then run the **targeted verify pass** |
+| Single-seat P0 | Not yours to adjudicate alone — **arbitration round** first |
+| Single-seat P1–P3 | Judge on merit (read the cited code yourself); fix if defensible, else note why not |
+| Panel verdict split | Surface it, then run the **arbitration round** |
 
-**Targeted verify pass** (added 2026-08-20, pending live validation). After fixing a finding,
-do NOT re-run the whole panel by default. Instead:
+**Targeted verify pass.** After a fix, do not re-run the whole panel by default:
+1. Build a SMALL packet scoped to the fix: `--focus "verify fix of: <finding title>"`,
+   `--summary` carrying the original finding text and exactly what changed, lower `--budget`.
+   Its `fingerprint` must differ from the original run's — you are verifying new state.
+2. Spawn only the seats that reported the finding (if one failed this run, substitute the
+   deepest active seat — `docs/thinking-levels.md` has the depth order).
+3. Full-panel re-runs only for large/risky fixes or on request.
 
-1. Rebuild a SMALL packet scoped to the fix:
-   `--focus "verify fix of: <finding title>"`, `--summary` carrying the original finding text
-   and exactly what was changed, and a lowered `--budget`.
-2. Spawn **only the seats that reported the finding** (if a reporting seat failed this run,
-   substitute the deepest active seat instead — see `docs/thinking-levels.md` for depth order).
-3. Full-panel re-runs are for large or risky fixes, or when the user asks for one.
-
-Finish by stating what the panel changed, what you chose to ignore (and why), and the current
-verdict. These are notes for your own review loop, not a report to be filed away.
+Finish by stating what the panel changed, what you chose to ignore and why, which seats
+delivered, and the current verdict.
 
 ## Arbitration round (contested findings)
 
-Added 2026-08-20 (pending live validation). Runs **at most ONCE per review**, and only when
-triggered:
+At most ONCE per review, only when the verdict splits (both `correct` and `incorrect`
+present) or a **P0** is uncorroborated. Never for single-seat P1–P3.
 
-- the panel verdict splits (both `correct` and `incorrect` present), **or**
-- a **P0** finding is uncorroborated (1 seat).
+1. **Mini-packet** (`/tmp/quorum-arbitration.md`): the contested finding(s) verbatim; the
+   cited code ±20 lines read from disk; each seat's verdict + explanation with seat and model
+   names replaced by "Reviewer 1..N" (anonymized so arbitrators judge the code, not the
+   model's reputation).
+2. **Spawn set:** the reporting seat plus two non-reporting active seats (all active seats if
+   only 3 are active). ONE `task` call. Seats only.
+3. **Task text:**
+   ```
+   task: Evaluate ONLY the contested finding(s) in /tmp/quorum-arbitration.md, against that
+         mini-packet and the code it cites. Return overall_correctness: "incorrect" if you
+         now judge the finding a real defect (AGREE), or "correct" if you do not (DISAGREE),
+         with a 1-3 sentence explanation. Findings yields are optional and only for
+         corrections to the contested finding itself.
+   agent: <seat name>
+   name:  <seat name>
+   ```
+4. ≥2 AGREE ⇒ corroborated, fix it. Majority DISAGREE ⇒ "disputed — rejected in
+   arbitration", still shown with reasoning in the summary. Never a second round.
 
-Never arbitrate P1/P2/P3 single-seat findings — judge those on merit as before.
+## Degraded panels are normal — report them, never hide them
 
-**1. Build a mini-packet** (a small markdown file, e.g. `/tmp/quorum-arbitration.md`):
+- **Some seats fail:** say which ("seat unavailable: <seat>, <reason>") and continue; the
+  denominators already show it. Never pad with local agents.
+- **<2 seats deliver:** the panel cannot quorum — show what came back, say so, and point at
+  the model routes (they churn).
+- **All seats fail:** stop and report the failing model IDs; the cause is routing/policy, not
+  the code.
+- Seats that take very long (some deep seats run 20–50 min) are not failures by themselves;
+  a seat that never yields is. Consider OMP's `task.maxRuntimeMs` as a backstop.
 
-- the contested finding(s) **verbatim** — title, body, location;
-- the cited code slice, ±20 lines, read from disk (not from memory);
-- each seat's verdict + explanation with seat and model names **replaced by
-  "Reviewer 1..N"**. Anonymize — naming the models anchors the arbitrators on model
-  reputation instead of the code. Chatham House rules.
+## Swapping seat models on command
 
-**2. Spawn set:** the reporting seat plus two non-reporting active seats (all active seats if
-only 3 are active). ONE parallel batch. **Seats only** — the same rule as §3.
+Routing is fixed at spawn: the `task` tool has no per-call model parameter. To run a seat on
+another model without editing files, set OMP's `task.agentModelOverrides.<seat>` to a
+`provider/model[:thinking-level]` selector — for one session via `omp --config <overlay.yml>`,
+per repo in `<repo>/.omp/config.yml`, or globally in `~/.omp/agent/config.yml` / the `/agents`
+hub. Ready-made overlays and the full rules are in the bundle's `presets/README.md`. Whatever
+the route, step 5's provenance check is what proves which model actually reviewed.
 
-**3. Task text** — instruct each seat:
+## Tooling reference
 
-```
-task: Evaluate ONLY the contested finding(s) in /tmp/quorum-arbitration.md, against that
-      mini-packet and the code it cites. Return overall_correctness: "incorrect" if you
-      now judge the finding a real defect (AGREE), or "correct" if you do not (DISAGREE),
-      with a 1-3 sentence explanation. Findings yields are optional and only for
-      corrections to the contested finding itself.
-agent: <seat name from panel.mjs>
-name:  <seat name>
-```
-
-**4. Outcome mapping:**
-
-| Arbitration result | Action |
-|---|---|
-| ≥2 seats AGREE | Treat the finding as corroborated — fix it |
-| Majority DISAGREE | Mark it "disputed — rejected in arbitration"; still show it, with the reasoning, in the final summary |
-
-Never a second round. Record the arbitration outcome in the final summary either way.
-
-*Why:* single-seat P0s and verdict splits were previously adjudicated by the local
-orchestrator alone — the exact failure mode quorum exists to avoid. Public multi-model
-implementations (Star Chamber's debate mode, multi-model-debate) show that one anonymized
-round is enough to change verdicts.
-
-## Handling failures (degraded panel)
-
-- **Some seats fail:** note "seat unavailable (model X blocked/failed)" and continue with the
-  working remainder. Never silently run a smaller panel than the user asked for — say so.
-  And never pad the panel with local/bundled agents (`scout`, `reviewer`, etc.) — the count
-  that matters is seats that actually delivered.
-- **<2 seats succeed:** tell the user the panel can't quorum (no consensus signal), show what
-  did come back, and suggest checking the model routes (they churn — see panel section).
-- **All seats fail:** stop and report the failing model IDs back to the user; the likely causes
-  are account/gateway routing or provider-side policy, not the code being reviewed.
-
-## Tooling notes
-
-- Scripts live in `~/.omp/agent/skills/quorum-review/scripts/` — use absolute paths
-  (cwd varies by project).
-- `packet.mjs --help`-style flags: `--focus`, `--summary`, `--files`, `--limit <bytes>`,
-  `--budget <bytes>` (global packet cap, default `300000`, `0` disables), `--all-files`
-  (keep lockfiles/generated files in the embedded diff — excluded by default), `--out`,
-  `--json`. Diffs are handled per file; deleted files' patches are stripped and listed by name;
-  untracked files are embedded in full and seats are told not to re-read them from disk.
-  Over-budget packets drop the largest patches (replaced with a "read the file directly"
-  note) and the final stderr line reports total packet bytes plus omission counts.
-- `dedupe.mjs`: pass the specific result files from this run. `--dir <path>` scans all `*.json` there
-  (its own `*.report.json` artifacts are auto-excluded) — use it only on a directory holding exactly
-  this run's seat files. `--json` writes a machine-readable merged report next to `--out`.
-  Clustering is category-aware (see §5) and renders `cwe` when a finding carries it.
+- `panel.mjs [--json] [--prefix rev-quorum-] [--agents-dir <path>] [--no-omp]` — active seats
+  with effective models; honors `disable: true` and OMP `task.disabledAgents`.
+- `packet.mjs --focus <t> [--summary <t>] [--files a,b] [--limit <bytes>] [--budget <bytes>]
+  [--all-files] [--out <path>] [--json]` — packet header carries `rev` and `fingerprint`;
+  last stderr line reports bytes, omissions and truncations.
+- `dedupe.mjs <results...> [--dir <path>] [--panel <panel.json>] [--expected a,b] [--cwd <repo>]
+  [--out <path>] [--json]` — `--dir` scans every `*.json` (its own `*.report.json` excluded),
+  so use it only on a directory holding exactly this run's files.

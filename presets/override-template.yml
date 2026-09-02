@@ -1,0 +1,23 @@
+# quorum-review preset TEMPLATE — swap individual seats onto other models for a run.
+#
+# One run:      omp --config presets/override-template.yml
+# One repo:     copy the block into <repo>/.omp/config.yml
+# Persistent:   copy the block into ~/.omp/agent/config.yml (or use the /agents hub)
+#
+# Values are OMP model selectors: provider/model, optionally :thinking-level, or an @role alias
+# from modelRoles. Delete the seats you do not want to override — an entry here wins over the
+# seat file's calibrated `model:`/`thinking-level:` pin. Confirm with:
+#   node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
+#   node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
+task:
+  agentModelOverrides:
+    rev-quorum-gem: nanogpt/google/gemini-3.7-flash:medium
+    rev-quorum-glm: nanogpt/zai-org/glm-5.3:medium
+    rev-quorum-grok: nanogpt/x-ai/grok-4.6:medium
+    rev-quorum-nemo: nanogpt/nvidia/nemotron-3.5-lightning:minimal
+    rev-sec-kimi: nanogpt/moonshotai/kimi-k3:max
+    rev-sec-glm: nanogpt/zai-org/glm-5.3:xhigh
+    rev-sec-grok: nanogpt/x-ai/grok-4.6:medium
+  # Park seats for this scope without editing files (panel.mjs skips them):
+  # disabledAgents:
+  #   - rev-quorum-nemo
