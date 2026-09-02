@@ -1,0 +1,6 @@
+{
+  "name": "quorum-review",
+  "version": "0.3.0",
+  "description": "Multi-model panel review skills for Oh My Pi: quorum-review (general last-pass gate) and security-quorum (focused security pass).",
+  "private": true
+}
