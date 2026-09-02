@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+      - name: Validate marketplace catalog + plugin integrity
+        run: node scripts/validate-marketplace.mjs
+      - name: Lint agent frontmatter + presets
+        run: node scripts/lint-agents.mjs
+      - name: Smoke-test the packet script
+        run: |
+          node plugins/pilotfish/skills/pilotfish/scripts/packet.mjs \
+            --focus "ci smoke" --claim "runs" --limit 2000 --files plugins/pilotfish/skills/pilotfish/SKILL.md \
+            --out /tmp/pf-smoke.md
+          test -s /tmp/pf-smoke.md
+          grep -q "ci smoke" /tmp/pf-smoke.md
+          grep -q "fingerprint" /tmp/pf-smoke.md
+          # secret hygiene: an untracked .env-style file must be listed but never embedded
+          echo "TOKEN=sk-ci-should-not-leak" > plugins/pilotfish/ci-probe.env
+          node plugins/pilotfish/skills/pilotfish/scripts/packet.mjs --focus "ci secret probe" --out /tmp/pf-secret.md
+          grep -q "not embedded: secret-like name" /tmp/pf-secret.md
+          ! grep -q "sk-ci-should-not-leak" /tmp/pf-secret.md
+          rm -f plugins/pilotfish/ci-probe.env
