@@ -236,7 +236,8 @@ model actually reviewed.
 ## Tooling reference
 
 - `panel.mjs [--json] [--prefix rev-quorum-] [--agents-dir <path>] [--no-omp]` — active seats
-  with effective models; honors `disable: true` and OMP `task.disabledAgents`.
+  with effective models; finds seat files in the user agents dir and every installed plugin's
+  `agents/` dir; honors `disable: true` and OMP `task.disabledAgents`.
 - `packet.mjs --focus <t> [--summary <t>] [--files a,b] [--limit <bytes>] [--budget <bytes>]
   [--context <n|auto>] [--all-files] [--out <path>] [--json]` — packet header carries `rev` and `fingerprint`;
   last stderr line reports bytes, omissions and truncations.

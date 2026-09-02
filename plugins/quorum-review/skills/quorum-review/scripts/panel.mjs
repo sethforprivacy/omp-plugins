@@ -12,6 +12,10 @@
 // Usage:
 //   panel.mjs [--json] [--prefix <seat-prefix>] [--agents-dir <path>] [--no-omp]
 //
+// Seat files are discovered where OMP loads agents: ~/.omp/agent/agents/ (manual installs) and
+// every ~/.omp/plugins/cache/plugins/*/agents/ (plugin installs); a user-dir file shadows a
+// plugin file of the same name. --agents-dir restricts discovery to one directory.
+//
 // Output (markdown), one seat per line:
 //   rev-quorum-a — someprovider/some-model:medium (task.agentModelOverrides)
 //
@@ -22,7 +26,7 @@
 // the `/agents` hub used without persisting) are NOT visible here — always confirm the resolved
 // model on each delivered result.
 
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -30,12 +34,26 @@ function home() {
   return process.env.HOME || process.env.USERPROFILE;
 }
 
+// Where OMP loads agent files from: the user dir, plus every installed plugin's agents/ dir.
+// A user-dir file shadows a plugin file of the same name (that is OMP's rule too).
+function defaultAgentDirs() {
+  const dirs = [join(home(), ".omp", "agent", "agents")];
+  const cache = join(home(), ".omp", "plugins", "cache", "plugins");
+  if (existsSync(cache)) {
+    for (const p of readdirSync(cache).sort()) {
+      const d = join(cache, p, "agents");
+      try { if (statSync(d).isDirectory()) dirs.push(d); } catch { /* not a dir */ }
+    }
+  }
+  return dirs;
+}
+
 function parseArgs(argv) {
-  const args = { json: false, prefix: "rev-quorum-", dir: join(home(), ".omp", "agent", "agents"), omp: true };
+  const args = { json: false, prefix: "rev-quorum-", dirs: null, omp: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--json") args.json = true;
-    else if (a === "--agents-dir") args.dir = argv[++i];
+    else if (a === "--agents-dir") args.dirs = [argv[++i]];
     else if (a === "--prefix") args.prefix = argv[++i];
     else if (a === "--no-omp") args.omp = false;
     else {
@@ -90,9 +108,18 @@ function ompSetting(key) {
 }
 
 const args = parseArgs(process.argv.slice(2));
-if (!existsSync(args.dir)) {
-  console.error(`panel: agents dir not found: ${args.dir}`);
+const dirs = (args.dirs || defaultAgentDirs()).filter((d) => existsSync(d));
+if (dirs.length === 0) {
+  console.error(`panel: no agents dir found (looked in ${(args.dirs || defaultAgentDirs()).join(", ")})`);
   process.exit(1);
+}
+// Collect seat files across dirs; first dir wins on a name collision.
+const seatFiles = new Map();
+for (const d of dirs) {
+  for (const f of readdirSync(d).sort()) {
+    if (!f.startsWith(args.prefix) || !f.endsWith(".md")) continue;
+    if (!seatFiles.has(f)) seatFiles.set(f, join(d, f));
+  }
 }
 
 let overrides = {};
@@ -114,9 +141,8 @@ const asSelector = (v) => (Array.isArray(v) ? v.join(" → ") : v ? String(v) : 
 
 const seats = [];
 const skipped = [];
-for (const f of readdirSync(args.dir).sort()) {
-  if (!f.startsWith(args.prefix) || !f.endsWith(".md")) continue;
-  const fm = frontmatter(readFileSync(join(args.dir, f), "utf8"));
+for (const [f, path] of [...seatFiles.entries()].sort()) {
+  const fm = frontmatter(readFileSync(path, "utf8"));
   const name = frontmatterField(fm, "name") || f.replace(/\.md$/, "");
   if (isDisabled(fm)) { skipped.push({ name, why: "disable: true in seat file" }); continue; }
   if (disabledAgents.includes(name)) { skipped.push({ name, why: "listed in OMP task.disabledAgents" }); continue; }
@@ -133,11 +159,11 @@ for (const f of readdirSync(args.dir).sort()) {
     skipped.push({ name, why: `UNCONFIGURED — set task.agentModelOverrides.${name} (or modelRoles.${pinned.slice(1) || name}) to provider/model[:level] in your OMP config` });
     continue;
   }
-  seats.push({ name, model, source, pinnedModel: pinned, file: f });
+  seats.push({ name, model, source, pinnedModel: pinned, file: path });
 }
 
 if (seats.length === 0) {
-  console.error(`panel: no active ${args.prefix}* seats found in ${args.dir}`);
+  console.error(`panel: no active ${args.prefix}* seats found in ${dirs.join(", ")}`);
   for (const s of skipped) console.error(`panel:   ${s.name} — skipped (${s.why})`);
   process.exit(1);
 }
