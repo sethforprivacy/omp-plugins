@@ -61,19 +61,20 @@ validator enforces equality.
    of its review on the local model and breaks the independence the panel exists for.
    `lint.mjs` enforces it.
 4. **Deterministic logic lives in scripts** — orchestration lives in SKILL.md. Keep the CLI
-   stable: `packet.mjs` (`--focus --summary --files --limit --budget --context --all-files --out
-   --json`), `dedupe.mjs` (`--panel --expected --refuted --cwd --dir --out --json`), `panel.mjs`
+   stable: `collect.mjs` (`--prefix --out --session-dir --since --all --json`), `packet.mjs`
+   (`--focus --summary --files --limit --budget --context --all-files --out --json`), `dedupe.mjs` (`--panel --expected --refuted --cwd --dir --out --json`), `panel.mjs`
    (`--prefix --agents-dir --json --no-omp`), `minipacket.mjs` (`--report --mode --select
    --security --cwd --context --out`), `lint.mjs` (`--quiet`).
 5. **Degraded panels are correct behavior, not errors.** Report which seats ran; `dedupe
    --panel` lists expected seats with no result and uses `n/<active>` denominators. Never hide
    a failed seat, never silently run a bigger/smaller panel than configured.
-6. **Never fabricate or transcribe reviewer output.** Save the delivered `result.data` verbatim
-   plus `seat`/`resolvedModel`. A `schema_violation` payload is still the seat's output (save it,
-   mark it). Verdict-only seats are recorded as-is, never re-run for structure.
-7. **Provenance is checked, not assumed.** The resolved model of every result must be the
-   panel's effective model. A fallback onto the session model (`resolvedModelIsFallback`) or a
-   different model is a failed seat. `dedupe --panel` flags both.
+6. **Never fabricate or transcribe reviewer output.** `collect.mjs` writes results from OMP's
+   subagent transcripts (verbatim `result.data` + provenance). The orchestrator never hand-writes
+   a result file. Partial/`schema_violation` output is still the seat's output; verdict-only and
+   no-yield seats are recorded as-is, never re-run for structure.
+7. **Provenance is checked, not assumed.** `collect.mjs` reads the resolved model and fallback
+   flag from the transcript; `dedupe --panel` cross-checks against the panel snapshot. A fallback
+   onto the session model or a different model is a failed seat.
 8. **One retry max per seat per run**, solo, for transient failures only (400 empty body, 402,
    429, timeout, runtime exit). Never a third attempt, never a substitute agent.
 9. **Arbitration is bounded**: at most ONE round, only for a verdict split or an uncorroborated
@@ -105,7 +106,8 @@ validator enforces equality.
   `<repo>/.omp/config.yml`; global: config.yml or `/agents` hub). Selectors take `:level`
   suffixes. See `presets/README.md`.
 - `omp config get` reads persisted config only, so `panel.mjs` cannot see a `--config`
-  overlay — the delivered result's resolved model is the truth.
+  overlay — the transcript's `resolvedModel` (what `collect.mjs` reads) is the truth. The task
+  tool's text result does NOT expose the resolved model to the orchestrator; only the transcript does.
 - A model whose provider lacks credentials **falls back to the parent session model**
   silently apart from `resolvedModelIsFallback`. That is why invariant 7 exists.
 - Per-spawn `effort` (`lo|med|hi`) exists only when `task.enableEffort` is on (default off);

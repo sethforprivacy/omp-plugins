@@ -183,7 +183,7 @@ for (const dir of scriptDirs) {
     }
   }
 }
-for (const s of ["panel.mjs", "packet.mjs", "dedupe.mjs", "minipacket.mjs"]) {
+for (const s of ["panel.mjs", "packet.mjs", "dedupe.mjs", "minipacket.mjs", "collect.mjs"]) {
   if (!existsSync(join(skillsDir, "quorum-review", "scripts", s))) fail(`skills/quorum-review/scripts/${s}: missing (both SKILL.md files reference it)`);
 }
 const installer = join(pluginDir, "install.sh");

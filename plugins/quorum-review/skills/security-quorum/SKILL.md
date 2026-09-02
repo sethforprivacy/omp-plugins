@@ -106,26 +106,26 @@ Hard rules — each has been violated in a real run:
   body, 402, 429, timeout, runtime exit) earns exactly ONE solo re-spawn outside the batch; a
   second failure is a failed seat. Structure problems are never retried.
 
-### 5. Collect — save every delivered result verbatim
-Save each result to `~/.omp/security-quorum/<seat>-<timestamp>.json` as the **raw
-`result.data` object exactly as delivered**, plus top-level `"seat"`, `"resolvedModel"` and,
-when shown, `"resolvedModelIsFallback"`. Never paraphrase or re-key findings. Keep this
-directory separate from `~/.omp/quorum-review/` so the two pass types never mix.
+### 5. Collect — from OMP's own transcripts, never from memory
+```
+node $Q/collect.mjs --prefix rev-sec- --out ~/.omp/security-quorum/<run-ts>/
+```
+OMP's per-seat transcripts record the agent, the model it ACTUALLY ran on, whether that was a
+fallback, the thinking level and every yield; `collect.mjs` writes one `<seat>-<timestamp>.json`
+per seat (result `data` verbatim + `seat`, `resolvedModel`, `resolvedModelIsFallback`,
+`thinkingLevel`, `status`) and prints a table. Never hand-write a result file. Keep this
+directory separate from `~/.omp/quorum-review/`.
 
-Provenance check, per seat, before saving:
-- Result came from the seat you spawned; anything from a non-seat agent is discarded and noted.
-- Resolved model equals the seat's effective model in `/tmp/sec-quorum-panel.json`. A
-  **fallback** onto your session's model, or a different model, is not an independent vote:
-  record the seat as failed (keep the file, name the reason).
-- `schema_violation` after a full review: the payload inside the error is the seat's output —
-  save it with `"schema_violation": true` and treat the seat as delivered. Prose with no
-  yields, or a verdict with empty `findings`, is **verdict-only**: save, note, do not re-run.
+Read the table before dedupe: `fallback` **YES** means the seat ran on YOUR session model (not
+independent — failed seat, fix the assignment); `resolved model` must match
+`/tmp/sec-quorum-panel.json` (dedupe flags mismatches); `no-yield` is a failed seat, never
+re-run for structure; `verdict-only` and `partial` results are recorded as-is and dedupe parses
+them.
 
 ### 6. Dedupe + rank by consensus
 ```
-node $Q/dedupe.mjs \
-  ~/.omp/security-quorum/<seat>-<ts>.json ... \
-  --panel /tmp/sec-quorum-panel.json --out ~/.omp/security-quorum/report-<ts>.md
+node $Q/dedupe.mjs --dir ~/.omp/security-quorum/<run-ts>/ \
+  --panel /tmp/sec-quorum-panel.json --out ~/.omp/security-quorum/report-<ts>.md --json
 ```
 Expected seats with no result show as "no result" and denominators are `n/<active seats>`;
 model mismatches are flagged. Ranking is priority first, then corroboration, then confidence
@@ -153,8 +153,8 @@ agent: <seat name>
 name:  <seat name>-refute
 ```
 
-Save its result verbatim (`~/.omp/security-quorum/<seat>-refute-<ts>.json`) and re-run step 6
-with `--refuted <that file>`. REFUTED clusters are shown under "Refuted in verification", never
+Collect it like any seat (`collect.mjs --prefix rev-sec- --out ~/.omp/security-quorum/<run-ts>-refute/`)
+and re-run step 6 with `--refuted <that file>`. REFUTED clusters are shown under "Refuted in verification", never
 dropped; CONFIRMED ones are marked ✔ verified. One pass only; the refuter is not a panel vote.
 
 ### 7. Present and act — in this session, immediately
@@ -226,5 +226,5 @@ user, never spawned; step 5's provenance check proves which model actually revie
 ## Tooling reference
 
 Same scripts and flags as quorum-review (`panel.mjs --prefix rev-sec-`, `packet.mjs`,
-`dedupe.mjs --panel [--refuted]`, `minipacket.mjs --security`); see that skill's tooling reference. Detection tuning happens in the
+`collect.mjs --prefix rev-sec-`, `dedupe.mjs --panel [--refuted]`, `minipacket.mjs --security`); see that skill's tooling reference. Detection tuning happens in the
 `rev-sec-*.md` seat prompts — iterate there, re-run `install.sh`, never in this file.

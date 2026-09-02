@@ -14,7 +14,7 @@
       "name": "quorum-review",
       "description": "quorum-review + security-quorum skills: independent remote reviewer seats spawned in parallel, findings deduped by consensus, provenance-checked. Seats are neutral slots; you assign models in OMP config.",
       "source": "./plugins/quorum-review",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "author": { "name": "Seth", "email": "seth@sethforprivacy.com" },
       "homepage": "https://github.com/sethforprivacy/omp-plugins/tree/main/plugins/quorum-review",
       "repository": "https://github.com/sethforprivacy/omp-plugins",

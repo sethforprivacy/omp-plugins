@@ -37,6 +37,7 @@ plugins/quorum-review/
       packet.mjs               ← focus + summary + diff; secret rail; fingerprint; auto context
       dedupe.mjs               ← merges results, clusters, consensus report (--panel, --refuted)
       minipacket.mjs           ← anonymized follow-up packets: refutation pass / arbitration
+      collect.mjs              ← seat results + provenance straight from OMP's subagent transcripts
   skills/security-quorum/
     SKILL.md                   ← focused security-review protocol (panel_prefix: rev-sec-);
                                  uses the quorum-review skill's scripts/
@@ -121,10 +122,11 @@ plugin, `omp plugin upgrade` is the update path and this drift cannot happen.
    only**: `agent:` is the exact seat name on every entry; bundled agents (`scout`, `reviewer`,
    `task`, …) are never panel members or stand-ins. A transient failure earns **one** solo
    retry; structure failures are never retried.
-5. **Collect** — each result is saved **verbatim** (`~/.omp/quorum-review/<seat>-<ts>.json`
-   or `~/.omp/security-quorum/…`) with `seat` and `resolvedModel` added. **Provenance check:**
-   the resolved model must be the panel's effective model; a result that fell back onto the
-   session model is a failed seat, not an independent vote.
+5. **Collect** — `collect.mjs` reads OMP's per-seat transcripts and writes each result
+   **verbatim** (`~/.omp/quorum-review/<run>/<seat>-<ts>.json` or `~/.omp/security-quorum/…`)
+   with the model the seat actually ran on, the fallback flag, thinking level and status. Nothing
+   is transcribed by the orchestrator. **Provenance check:** the resolved model must be the
+   panel's effective model; a fallback onto the session model is a failed seat, not a vote.
 6. **Dedupe** — `dedupe.mjs --panel` clusters the same issue across reviewers (title match,
    co-located distinctive tokens, category-aware, tolerant of absolute vs relative paths),
    ranks **priority first** then corroboration, lists expected seats with no result, flags
@@ -232,7 +234,8 @@ framework- and product-agnostic — then re-run `./install.sh`.
 | Packet withheld a file ("secret-like name") | The rail matched the filename. If that file IS the surface under review, pass `--all-files` deliberately |
 | Packet `TRUNCATED` line names a file | Cut at `--limit` (default 100000 bytes/file); seats must read it from disk, or raise `--limit` |
 | Dedupe reports a phantom reviewer or "not a reviewer result" | `--dir` scanned a stale or non-result file → pass explicit result files; panel snapshots and packet metadata are skipped with a warning |
-| Dedupe says "no result" for a seat | Expected by `--panel` but no file saved → the seat failed, or the orchestrator did not save its result. Both are findings about the run |
+| Dedupe says "no result" for a seat | Expected by `--panel` but `collect.mjs` found no transcript → the seat never spawned in this session, or a different session did (`--session-dir`) |
+| `collect.mjs` finds no transcripts | Seats spawn transcripts under `~/.omp/agent/sessions/<cwd>/<session>/`; widen `--since`, pass `--session-dir`, or check the seats actually spawned (`agent:` on every entry) |
 | Findings that are clearly the same never corroborate | Check paths in the files: clustering tolerates abs/rel forms but not different filenames; check `category` disagreement (different categories only cluster on exact title) |
 | Panel shows the other skill's seats | Wrong `--prefix` (families are strictly prefix-keyed) |
 | Reviews landed on `scout`/`reviewer`/local agents | Off-protocol. Re-run per SKILL.md step 4: seats only. If the seat agents are missing, run `install.sh` |
@@ -249,7 +252,7 @@ Q=plugins/quorum-review/skills/quorum-review/scripts
 node $Q/panel.mjs --agents-dir plugins/quorum-review/agents             # general seats from the repo
 node $Q/panel.mjs --agents-dir plugins/quorum-review/agents --prefix rev-sec-
 node $Q/packet.mjs --focus "x" --out /tmp/packet.md --json              # smoke; read the stderr line
-node $Q/dedupe.mjs <results...> --panel /tmp/panel.json --out /tmp/r.md --json
+node $Q/collect.mjs --out /tmp/run1 && node $Q/dedupe.mjs --dir /tmp/run1 --panel /tmp/panel.json --out /tmp/r.md --json
 node $Q/minipacket.mjs --report /tmp/r.md.report.json --mode refute --out /tmp/refute.md
 ./install.sh --dry-run                                  # manual-install surface
 ```

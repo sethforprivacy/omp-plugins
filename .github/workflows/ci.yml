@@ -39,6 +39,24 @@ jobs:
           grep -q "2/3" /tmp/report.md && grep -q "no result: rev-sec-c" /tmp/report.md
           node $S/minipacket.mjs --report /tmp/report.md.report.json --mode refute --select all --cwd /repo --out /tmp/mini.md
           grep -q "Reject unchecked input" /tmp/mini.md
+          # collect.mjs against a synthetic OMP subagent transcript (session_init/model_change/yield shapes)
+          mkdir -p /tmp/sess/run1
+          {
+            printf '%s\n' '{"type":"session","version":3,"id":"x","timestamp":"2026-09-02T10:00:00.000Z","cwd":"/repo"}'
+            printf '%s\n' '{"type":"model_change","id":"a","parentId":null,"timestamp":"2026-09-02T10:00:00.100Z","model":"someprovider/model-a","resolvedModelIsFallback":false}'
+            printf '%s\n' '{"type":"thinking_level_change","id":"b","parentId":"a","timestamp":"2026-09-02T10:00:00.100Z","thinkingLevel":"high","configured":null}'
+            printf '%s\n' '{"type":"session_init","id":"c","parentId":"b","timestamp":"2026-09-02T10:00:00.200Z","task":"review","agent":"rev-sec-a","resolvedModel":"someprovider/model-a","tools":["read"]}'
+            printf '%s\n' '{"type":"message","id":"d","parentId":"c","timestamp":"2026-09-02T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"y1","name":"yield","arguments":{"type":["findings"],"result":{"data":{"title":"Reject unchecked input","body":"a","priority":1,"confidence":0.9,"file_path":"src/a.cs","line_start":1,"line_end":3,"category":"input-validation"}}}}]}}'
+            printf '%s\n' '{"type":"message","id":"e","parentId":"d","timestamp":"2026-09-02T10:00:06.000Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"y2","name":"yield","arguments":{"type":["overall_correctness"],"result":{"data":"incorrect"}}}]}}'
+            printf '%s\n' '{"type":"message","id":"f","parentId":"e","timestamp":"2026-09-02T10:00:07.000Z","message":{"role":"toolResult","toolCallId":"y2","toolName":"yield","content":[{"type":"text","text":"Result submitted."}],"details":{"data":{"overall_correctness":"incorrect","explanation":"x","confidence":0.8,"findings":[{"title":"Reject unchecked input","body":"a","priority":1,"confidence":0.9,"file_path":"src/a.cs","line_start":1,"line_end":3,"category":"input-validation"}]}}}}'
+            printf '%s\n' '{"type":"custom","customType":"session_exit","data":{"reason":"dispose","kind":"normal"},"id":"g","parentId":"f","timestamp":"2026-09-02T10:00:08.000Z"}'
+          } > /tmp/sess/run1/rev-sec-a.jsonl
+          node $S/collect.mjs --prefix rev-sec- --session-dir /tmp/sess/run1 --out /tmp/collected
+          ls /tmp/collected/rev-sec-a-*.json
+          grep -q '"resolvedModel": "someprovider/model-a"' /tmp/collected/rev-sec-a-*.json
+          grep -q '"status": "delivered"' /tmp/collected/rev-sec-a-*.json
+          node $S/dedupe.mjs --dir /tmp/collected --panel /tmp/panel.json --out /tmp/report2.md
+          grep -q "someprovider/model-a" /tmp/report2.md
       - name: pilotfish script smoke
         run: |
           node plugins/pilotfish/skills/pilotfish/scripts/packet.mjs \

@@ -105,31 +105,42 @@ Hard rules — each of these has been violated in a real run:
   outside the batch. A second failure is a failed seat. Structure problems (verdict-only,
   schema violation, prose instead of yields) are never retried.
 
-### 5. Collect — save every delivered result verbatim
-Save each delivered result to `~/.omp/quorum-review/<seat>-<timestamp>.json` as the **raw
-`result.data` object exactly as delivered**, with three fields added at the top level:
-`"seat"`, `"resolvedModel"` (the model the harness reports the spawn ran on) and, when shown,
-`"resolvedModelIsFallback"`. Never paraphrase, re-type, summarize, or re-key the findings —
-a hand-transcribed file loses `priority`/`file_path` and degrades clustering.
+### 5. Collect — from OMP's own transcripts, never from memory
+OMP writes one transcript per spawned seat under `~/.omp/agent/sessions/<cwd>/<session>/`. It
+records the agent, the model the seat ACTUALLY ran on, whether that was a fallback, the thinking
+level, and every yield. Collect from there:
 
-Provenance check, per seat, before you save:
-- The result must come from the seat you spawned (name matches). Anything from a non-seat
-  agent is discarded from the panel set and noted as a violation.
-- The resolved model must be the seat's effective model from `/tmp/quorum-panel.json`. A
-  result marked as a **fallback** onto your session's model, or on a different model, is NOT an
-  independent vote: record the seat as failed (keep the file, name the reason).
-- A seat that finished with `schema_violation` still did the work — the payload inside the
-  error is its output. Save that payload, add `"schema_violation": true`, and treat the seat
-  as delivered (dedupe parses permissively). A seat that returned prose and no yields at all,
-  or an empty `findings` with a verdict, is **verdict-only**: save it, note it, do not re-run
-  it for structure.
+```
+node $Q/collect.mjs --out ~/.omp/quorum-review/<run-ts>/
+```
+(`--prefix rev-quorum-` is the default; add `--session-dir <dir>` if more than one session
+spawned seats recently, `--all` to keep retries as separate files.)
+
+It writes one `<seat>-<timestamp>.json` per seat — the seat's result `data` **verbatim** plus
+`seat`, `resolvedModel`, `resolvedModelIsFallback`, `thinkingLevel`, `status` — and prints a
+table. Never paraphrase, re-type, or hand-write a result file; if `collect.mjs` cannot find a
+seat's transcript, that seat did not spawn in this session.
+
+Read the table before dedupe:
+- `fallback` **YES**: OMP ran the seat on YOUR session model because its assigned model had no
+  working route or credentials. Not an independent vote — the seat is failed; keep the file,
+  say why. Fix the assignment (`presets/README.md`) before the next run.
+- `resolved model` must be the seat's model from `/tmp/quorum-panel.json`; dedupe cross-checks
+  and flags a mismatch.
+- `status` `no-yield`: prose, no structured output — failed seat (never re-run for structure).
+  `verdict-only`: verdict but zero findings — recorded, does not enter clustering.
+  `partial`: findings without a verdict (a `schema_violation` case) — still the seat's output;
+  dedupe parses it.
+- A result from a non-seat agent never appears here (collect filters on the seat prefix); if the
+  batch spawned one anyway, note the violation in the report.
 
 ### 6. Dedupe + rank by consensus
 ```
-node $Q/dedupe.mjs \
-  ~/.omp/quorum-review/<seat>-<ts>.json ... \
-  --panel /tmp/quorum-panel.json --out ~/.omp/quorum-review/report-<ts>.md
+node $Q/dedupe.mjs --dir ~/.omp/quorum-review/<run-ts>/ \
+  --panel /tmp/quorum-panel.json --out ~/.omp/quorum-review/report-<ts>.md --json
 ```
+(`--dir` on the per-run directory `collect.mjs` just wrote; `--json` writes the report.json that
+`minipacket.mjs` reads.)
 `--panel` makes every expected seat count: seats with no result appear as "no result" and
 denominators are `n/<active seats>`; it also flags any result whose resolved model differs
 from the panel. Findings are ranked **priority first**, then corroboration, then confidence:
@@ -157,8 +168,8 @@ agent: <seat name>
 name:  <seat name>-refute
 ```
 
-Save its result verbatim (`~/.omp/quorum-review/<seat>-refute-<ts>.json`), then re-run step 6
-with `--refuted <that file>`: REFUTED clusters move to a "Refuted in verification" section
+Collect it like any seat (`collect.mjs --out ~/.omp/quorum-review/<run-ts>-refute/`), then
+re-run step 6 with `--refuted <that file>`: REFUTED clusters move to a "Refuted in verification" section
 (shown, not actioned); CONFIRMED ones are marked ✔ verified. The refuter is not a panel vote.
 One pass only; never refute the refutation.
 
@@ -241,6 +252,8 @@ model actually reviewed.
 - `packet.mjs --focus <t> [--summary <t>] [--files a,b] [--limit <bytes>] [--budget <bytes>]
   [--context <n|auto>] [--all-files] [--out <path>] [--json]` — packet header carries `rev` and `fingerprint`;
   last stderr line reports bytes, omissions and truncations.
+- `collect.mjs [--prefix rev-quorum-] --out <dir> [--session-dir <dir>] [--since <min>] [--all]
+  [--json]` — seat results + provenance straight from OMP's subagent transcripts.
 - `dedupe.mjs <results...> [--dir <path>] [--panel <panel.json>] [--expected a,b] [--cwd <repo>]
   [--refuted <result.json>] [--out <path>] [--json]` — `--dir` scans every `*.json` (its own
   `*.report.json` and non-result files excluded), so use it only on a directory holding exactly
