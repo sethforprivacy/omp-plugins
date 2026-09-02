@@ -1,0 +1,12 @@
+diff --git a/cakepay-backend.yaml b/cakepay-backend.yaml
+index 22f3231..8c423f0 100644
+--- a/cakepay-backend.yaml
++++ b/cakepay-backend.yaml
+@@ -10,6 +10,7 @@
+   max_fail_percentage: 0
+   tasks:
+     - name: Ensure gha-deploy owns the deploy directory
++      when: cakepay_deploy_user is defined
+       ansible.builtin.file:
+         path: /opt/cakepay
+         owner: gha-deploy

@@ -1,0 +1,23 @@
+# quorum-review preset TEMPLATE — assign a model to every seat. Copy, fill in, and either
+#   omp --config <this file>            (one session)
+#   <repo>/.omp/config.yml              (one repo)
+#   ~/.omp/agent/config.yml or /agents  (everywhere)
+#
+# Values are OMP model selectors: provider/model, optionally :thinking-level. Use a DIFFERENT
+# vendor per seat — that independence is what makes corroboration meaningful. Custom providers
+# (any OpenAI-compatible gateway, a local router) are declared in ~/.omp/agent/models.yml.
+# Confirm with:  node <skill-dir>/scripts/panel.mjs   and   ... --prefix rev-sec-
+task:
+  agentModelOverrides:
+    # general panel (quorum-review): four seats, four vendors
+    rev-quorum-a: <provider>/<fast-model>:medium
+    rev-quorum-b: <provider>/<deep-model>:medium
+    rev-quorum-c: <provider>/<model>:medium
+    rev-quorum-d: <provider>/<cheap-model>:minimal
+    # security panel (security-quorum): depth over speed
+    rev-sec-a: <provider>/<deep-model>:max
+    rev-sec-b: <provider>/<deep-model>:xhigh
+    rev-sec-c: <provider>/<model>:medium
+  # Park a seat without touching files (panel.mjs skips it):
+  # disabledAgents:
+  #   - rev-quorum-d

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "quorum-review",
+  "owner": {
+    "name": "Seth",
+    "email": "seth@sethforprivacy.com"
+  },
+  "metadata": {
+    "description": "Multi-model panel review skills for Oh My Pi: quorum-review (general last-pass gate) and security-quorum (focused security pass), each spawning independent remote reviewer seats in parallel and deduping findings by consensus.",
+    "version": "0.3.1"
+  },
+  "plugins": [
+    {
+      "name": "quorum-review",
+      "description": "quorum-review + security-quorum skills, rev-* reviewer seats, protocol scripts, model-override presets",
+      "source": "./plugins/quorum-review",
+      "version": "0.3.1",
+      "author": {
+        "name": "Seth",
+        "email": "seth@sethforprivacy.com"
+      },
+      "homepage": "https://github.com/sethforprivacy/quorum-review",
+      "repository": "https://github.com/sethforprivacy/quorum-review",
+      "category": "development",
+      "keywords": [
+        "code-review",
+        "security-review",
+        "multi-model",
+        "quorum",
+        "consensus",
+        "panel"
+      ]
+    }
+  ]
+}

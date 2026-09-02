@@ -1,0 +1,15 @@
+# quorum-review preset: runtime backstops for the seats.
+#
+# Deep seats legitimately run 10–50 minutes; two observed glm security spawns ran 36–39 minutes
+# and never yielded a result. A hard cap turns "never yields" into a failed seat the protocol
+# already knows how to report, instead of an open-ended wait.
+#
+# One run:      omp --config presets/backstops.yml
+# Persistent:   copy the block into ~/.omp/agent/config.yml (or <repo>/.omp/config.yml)
+#
+# maxRuntimeMs applies to EVERY task spawn in the session (not only seats). Deep security seats
+# have legitimately taken 50+ minutes on some models — pick the value against your own panel's
+# history in ~/.omp/security-quorum/ and ~/.omp/quorum-review/.
+task:
+  maxRuntimeMs: 2700000        # 45 min; 0 = unbounded (OMP default)
+  showResolvedModelBadge: true # show which model each spawn actually ran on (provenance check)

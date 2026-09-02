@@ -1,0 +1,9 @@
+diff --git a/cakepay-backend.yaml b/cakepay-backend.yaml
+index 22f3231..b3e12f2 100644
+--- a/cakepay-backend.yaml
++++ b/cakepay-backend.yaml
+@@ -15,3 +15,4 @@
+         owner: gha-deploy
+         group: gha-deploy
+         recurse: yes
++      ignore_errors: yes
