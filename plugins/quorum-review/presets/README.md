@@ -1,42 +1,54 @@
-# Presets — swap seat models on command, without touching seat files
+# Presets — your panel is client config, not repo content
 
-Each seat's `model:` in `plugins/quorum-review/agents/rev-*.md` is the calibrated default. To run a
-seat on a different model for one session, one repo, or permanently, use OMP's own
-per-agent override setting — the seat files, the installed copies and this repo stay untouched:
+The seat files shipped in `agents/` are **neutral slots**. Each pins `model: "@<seat-name>"` (a
+role alias) and nothing else — no provider, no model, no thinking level. Which model a seat runs
+is decided entirely in your OMP config, so the repo never carries anyone's router, credentials,
+or pins:
 
 ```yaml
 task:
-  agentModelOverrides:
-    rev-quorum-glm: nanogpt/zai-org/glm-5.3:high     # provider/model[:thinking-level]
-    rev-sec-kimi: "@slow"                            # or a modelRoles alias
+  agentModelOverrides:                     # per seat: provider/model[:thinking-level]
+    rev-quorum-a: <provider>/<model>:medium
+    rev-quorum-b: <provider>/<model>:medium
+    rev-quorum-c: <provider>/<model>:medium
+    rev-quorum-d: <provider>/<model>:minimal
+    rev-sec-a: <provider>/<model>:max
+    rev-sec-b: <provider>/<model>:xhigh
+    rev-sec-c: <provider>/<model>:medium
 ```
 
-Three ways to apply it, most to least temporary:
+`modelRoles.<seat-name>` is the alternative (that is what the `@<seat-name>` alias resolves to);
+`task.agentModelOverrides` wins when both are set. A seat with neither is **unconfigured**:
+`panel.mjs` lists it as inactive with the exact key to set, because OMP would otherwise run it on
+your session's own model, which is not an independent vote.
+
+Where to put the block:
 
 | Scope | How |
 |---|---|
-| One session | `omp --config <path-to>/presets/<file>.yml` (any config.yml-style overlay; repeatable). Plugin installs keep the presets under `~/.omp/plugins/cache/plugins/*quorum-review*/presets/` |
-| One repo | put the block in `<repo>/.omp/config.yml` |
-| Everywhere | put the block in `~/.omp/agent/config.yml`, or use the `/agents` hub in the TUI (persists the same setting) |
-
-`panel.mjs` prints the **effective** model per seat (`… (override; seat file pins …)`) when the
-override lives in persisted config. A `--config` overlay or a session-only `/agents` switch is
-invisible to it — the delivered result's resolved model is the source of truth (see the
-provenance check in each SKILL.md).
+| One session | `omp --config <your-overlay>.yml` (any config.yml-style overlay; repeatable) |
+| One repo | `<repo>/.omp/config.yml` |
+| Everywhere | `~/.omp/agent/config.yml`, or the `/agents` hub in the TUI (persists the same setting) |
 
 Rules of the road:
 
-- `task.agentModelOverrides` wins over the seat file. Routing is fixed at spawn time; OMP's
-  `task` tool has no per-call model parameter, so a swap is a config change, not a task argument.
-- A model whose provider has no working credentials makes OMP **fall back to the parent session's
-  model**. That seat is then not independent; the protocol treats a fallback result as a failed
-  seat. Route-check a new model before relying on it.
-- Thinking level rides on the selector: `provider/model:high`. Levels were calibrated per seat
-  (`docs/thinking-levels.md`, `docs/benchmark.md`); an override resets that calibration for the
-  run, so pin one explicitly when you swap.
-- `task.disabledAgents: [rev-quorum-nemo]` parks a seat for the same scopes; `panel.mjs` honors it.
+- **Pick different vendors for different seats.** Corroboration only means something when the
+  seats are independent; two seats on the same model family share blind spots.
+- **Pin the thinking level on the selector** (`provider/model:high`). Levels are not in the seat
+  files; measure them for your models with the harness in `docs/benchmark.md`.
+- **Route-check a model before trusting it** (spawn the seat with "reply exactly OK"). A model
+  whose provider has no working credentials makes OMP fall back to the parent session's model
+  (`resolvedModelIsFallback`); the protocol treats that as a failed seat.
+- **Custom providers** (any OpenAI-compatible gateway or a local router) go in
+  `~/.omp/agent/models.yml`; its `apiKey:` may name an environment variable, so the key lives in
+  `~/.omp/agent/.env` (`chmod 600`), never in a repo.
+- `task.disabledAgents: [rev-quorum-d]` parks a seat for the same scopes; `panel.mjs` honors it.
+- Fewer than two configured seats cannot quorum; the skills stop and say so.
 
-- `backstops.yml` sets `task.maxRuntimeMs` (a seat that never yields becomes a failed seat instead
-  of an open-ended wait) and `task.showResolvedModelBadge` (see the resolved model on every spawn).
+Files here:
 
-Files here are examples to copy or pass to `--config`. They are not installed anywhere.
+- `override-template.yml` — the block above with placeholders, ready to copy or pass to `--config`.
+- `backstops.yml` — `task.maxRuntimeMs` (a seat that never yields becomes a failed seat instead of
+  an open-ended wait) and `task.showResolvedModelBadge` (see which model each spawn ran on).
+
+Nothing here is installed anywhere; these are examples.

@@ -1,23 +1,23 @@
-# quorum-review preset TEMPLATE — swap individual seats onto other models for a run.
+# quorum-review preset TEMPLATE — assign a model to every seat. Copy, fill in, and either
+#   omp --config <this file>            (one session)
+#   <repo>/.omp/config.yml              (one repo)
+#   ~/.omp/agent/config.yml or /agents  (everywhere)
 #
-# One run:      omp --config presets/override-template.yml
-# One repo:     copy the block into <repo>/.omp/config.yml
-# Persistent:   copy the block into ~/.omp/agent/config.yml (or use the /agents hub)
-#
-# Values are OMP model selectors: provider/model, optionally :thinking-level, or an @role alias
-# from modelRoles. Delete the seats you do not want to override — an entry here wins over the
-# seat file's calibrated `model:`/`thinking-level:` pin. Confirm with:
-#   node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
-#   node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
+# Values are OMP model selectors: provider/model, optionally :thinking-level. Use a DIFFERENT
+# vendor per seat — that independence is what makes corroboration meaningful. Custom providers
+# (any OpenAI-compatible gateway, a local router) are declared in ~/.omp/agent/models.yml.
+# Confirm with:  node <skill-dir>/scripts/panel.mjs   and   ... --prefix rev-sec-
 task:
   agentModelOverrides:
-    rev-quorum-gem: nanogpt/google/gemini-3.7-flash:medium
-    rev-quorum-glm: nanogpt/zai-org/glm-5.3:medium
-    rev-quorum-grok: nanogpt/x-ai/grok-4.6:medium
-    rev-quorum-nemo: nanogpt/nvidia/nemotron-3.5-lightning:minimal
-    rev-sec-kimi: nanogpt/moonshotai/kimi-k3:max
-    rev-sec-glm: nanogpt/zai-org/glm-5.3:xhigh
-    rev-sec-grok: nanogpt/x-ai/grok-4.6:medium
-  # Park seats for this scope without editing files (panel.mjs skips them):
+    # general panel (quorum-review): four seats, four vendors
+    rev-quorum-a: <provider>/<fast-model>:medium
+    rev-quorum-b: <provider>/<deep-model>:medium
+    rev-quorum-c: <provider>/<model>:medium
+    rev-quorum-d: <provider>/<cheap-model>:minimal
+    # security panel (security-quorum): depth over speed
+    rev-sec-a: <provider>/<deep-model>:max
+    rev-sec-b: <provider>/<deep-model>:xhigh
+    rev-sec-c: <provider>/<model>:medium
+  # Park a seat without touching files (panel.mjs skips it):
   # disabledAgents:
-  #   - rev-quorum-nemo
+  #   - rev-quorum-d

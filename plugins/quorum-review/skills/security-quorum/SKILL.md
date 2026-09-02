@@ -24,10 +24,11 @@ Below, `$Q` is that path.
 
 ## The panel is dynamic — read it, never hardcode it
 
-Seats are the `rev-sec-*.md` agent files in `~/.omp/agent/agents/` (a separate family from
-`rev-quorum-*`). Each file's `model:` is the calibrated default; OMP's
-`task.agentModelOverrides.<seat>` can swap it without touching files (see "Swapping seat
-models"). `panel.mjs` prints the **effective** model per active seat:
+Seats are the `rev-sec-*.md` agent files shipped with the bundle (a separate family from
+`rev-quorum-*`). Each is a neutral slot (`model: "@<seat>"`); the model comes from the user's
+OMP config (`task.agentModelOverrides.<seat>`, see "Assigning seat models"). `panel.mjs` prints
+the effective model per active seat and reports unassigned seats as UNCONFIGURED — never spawn
+those:
 
 ```
 node $Q/panel.mjs --prefix rev-sec-
@@ -170,7 +171,7 @@ Show the report (with the packet stderr line and any provenance warnings), then:
 **Targeted verify pass.** After a fix: small packet scoped to it (`--focus "verify fix of:
 <title>"`, original finding + attacker model + exactly what changed in `--summary`, lower
 `--budget`; its `fingerprint` must differ from the original run), spawned only to the seats
-that reported it (substitute the deepest active seat — `rev-sec-kimi`/`rev-sec-glm` — if a
+that reported it (substitute the active seat with the highest assigned thinking level if a
 reporter failed). Full-panel re-runs only for large/risky fixes or on request.
 
 Finish with what the panel changed, what you judged and ignored (and why), which seats
@@ -213,13 +214,14 @@ Never for single-seat P2/P3.
 - Deep security seats legitimately run 10–50 minutes. A seat that never yields is the failure,
   not a slow one; OMP's `task.maxRuntimeMs` is the backstop if you want one.
 
-## Swapping seat models on command
+## Assigning seat models
 
-Routing is fixed at spawn (no per-call model parameter on `task`). Set OMP's
-`task.agentModelOverrides.<seat>` to a `provider/model[:thinking-level]` selector — per
-session via `omp --config <overlay.yml>`, per repo in `<repo>/.omp/config.yml`, or globally in
-`~/.omp/agent/config.yml` / the `/agents` hub. Overlays and rules: the bundle's
-`presets/README.md`. Step 5's provenance check proves which model actually reviewed.
+Routing is fixed at spawn (no per-call model parameter on `task`) and shipped seat files name
+no model. The user's OMP config sets `task.agentModelOverrides.<seat>` to a
+`provider/model[:thinking-level]` selector — per session via `omp --config <overlay.yml>`, per
+repo in `<repo>/.omp/config.yml`, or globally in `~/.omp/agent/config.yml` / the `/agents` hub.
+Template and rules: the bundle's `presets/README.md`. UNCONFIGURED seats are reported to the
+user, never spawned; step 5's provenance check proves which model actually reviewed.
 
 ## Tooling reference
 

@@ -1,6 +1,6 @@
 ---
-name: rev-sec-glm
-description: Security-quorum reviewer L — glm-5.3 (nanogpt). Read-only security code reviewer for security-quorum panel passes. Picked by the main agent only via the security-quorum skill protocol, never solo.
+name: rev-sec-b
+description: "Security-quorum reviewer B (seat rev-sec-b). Read-only security code reviewer for security-quorum panel passes; its model is whatever your OMP config assigns to this seat (task.agentModelOverrides.rev-sec-b or modelRoles.rev-sec-b). Picked by the main agent only via the security-quorum skill protocol, never solo."
 tools: 
   - read
   - grep
@@ -10,8 +10,7 @@ tools:
   - web_search
   - ast_grep
   - yield
-model: nanogpt/zai-org/glm-5.3
-thinking-level: xhigh
+model: "@rev-sec-b"
 temperature: 0.1
 output: 
   properties: 

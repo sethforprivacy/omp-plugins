@@ -1,5 +1,13 @@
 # Seeded-defect detection benchmark (2026-08-20)
 
+> **Historical calibration record.** The seat names and model routes below (rev-quorum-gem/glm/
+> grok/nemo, rev-sec-kimi/glm/grok, OpenRouter/nanogpt) describe the author's panel at the
+> time. Since 2026-09-02 the repo ships neutral seats (`rev-quorum-a..d`, `rev-sec-a..c`) and
+> model assignments live in each user's OMP config. Use this document for its **method**
+> (seeded defects, pre-committed decision rules, per-level sweeps); the numbers apply to those
+> models on those routes only.
+
+
 **Status: first full run EXECUTED 2026-08-20** (33 planned cells + 6 trial cells + 3 retries
 = 39 delivered structured results; results and applied decisions in the
 [Results section](#results-2026-08-20) at the end).

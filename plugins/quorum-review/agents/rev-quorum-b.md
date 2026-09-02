@@ -1,6 +1,6 @@
 ---
-name: rev-quorum-gem
-description: Quorum reviewer B — google/gemini-3.7-flash (nanogpt, fast seat). Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
+name: rev-quorum-b
+description: "Quorum reviewer B (seat rev-quorum-b). Read-only code reviewer for quorum-review panel passes; its model is whatever your OMP config assigns to this seat (task.agentModelOverrides.rev-quorum-b or modelRoles.rev-quorum-b). Picked by the main agent only via the quorum-review skill protocol, never solo."
 tools: 
   - read
   - grep
@@ -10,8 +10,7 @@ tools:
   - web_search
   - ast_grep
   - yield
-model: nanogpt/google/gemini-3.7-flash
-thinking-level: medium
+model: "@rev-quorum-b"
 temperature: 0.1
 output: 
   properties: 

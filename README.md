@@ -14,21 +14,14 @@ Two skills share one protocol and one installer:
   Trigger phrases: **"security review"**, **"security pass"**, **"sec review"**,
   **"threat check"**.
 
-Last verified:
+The repo ships **neutral seats**: every `agents/rev-*.md` pins `model: "@<seat-name>"` and
+nothing else. Which models, provider, and thinking levels your panel runs is **your OMP config**
+(`task.agentModelOverrides.<seat>`), never repo content — see "Configure your panel" below.
 
-- 2026-09-02 — hardening pass off ~12 real runs' traces + a survey of peer tools
-  ([`docs/review-2026-09-02.md`](docs/review-2026-09-02.md)): effective-model panel, secret
-  rail + fingerprint + auto context in packets, panel-aware dedupe with provenance checks,
-  `lint.mjs`, seats made leaves, SKILL.md files rewritten as checklists, `presets/` for
-  on-command model swaps, an optional refutation pass (`minipacket.mjs` + `dedupe --refuted`),
-  and packaging as an OMP plugin with CI. Mechanical smoke tests pass; not yet exercised on a
-  live panel.
-- 2026-08-25 — all seats moved from OpenRouter to the `nanogpt` provider (same model IDs);
-  routes clean in every run since, zero provider errors in retained logs.
-- 2026-08-20 — seeded-defect benchmark iterations 1–2 ([`docs/benchmark.md`](docs/benchmark.md)):
-  every active pin rests on detection evidence; `rev-sec-gem` parked on merit, `rev-sec-grok`
-  added; gem/nemo stay after catching the seeded silent-skip on a small infra diff.
-- 2026-08-18 — thinking levels calibrated per seat ([`docs/thinking-levels.md`](docs/thinking-levels.md)).
+Status: protocol v3 (2026-09-02) — provenance-checked results, packet rails, panel-aware dedupe,
+optional refutation pass, OMP plugin packaging. Mechanically smoke-tested; see
+[`docs/review-2026-09-02.md`](docs/review-2026-09-02.md) for what real-run traces changed and
+[`docs/benchmark.md`](docs/benchmark.md) for how to calibrate seats against seeded defects.
 
 ## Layout
 
@@ -37,7 +30,7 @@ repo root/
   .omp-plugin/marketplace.json   ← OMP marketplace catalog (this repo IS the marketplace)
   plugins/quorum-review/         ← the plugin
     package.json                 ← version (kept equal to the catalog by validate-marketplace)
-    agents/rev-quorum-*.md       ← general panel seats; `model:` pins the model
+    agents/rev-quorum-*.md       ← general panel seats (neutral slots: model: "@<seat>")
     agents/rev-sec-*.md          ← security seats; detection criteria/exclusions/precedents live here
     skills/quorum-review/
       SKILL.md                   ← general panel-review protocol (panel_prefix: rev-quorum-)
@@ -49,7 +42,7 @@ repo root/
     skills/security-quorum/
       SKILL.md                   ← focused security-review protocol (panel_prefix: rev-sec-);
                                    uses the quorum-review skill's scripts/
-    presets/                     ← config overlays: model swaps, runtime backstops (+ README)
+    presets/                     ← config templates: seat→model assignment, runtime backstops (+ README)
   scripts/lint.mjs               ← seat/skill consistency lint (CI + install.sh)
   scripts/validate-marketplace.mjs ← catalog/plugin integrity (CI)
   install.sh                     ← MANUAL install fallback (+ --uninstall, --dry-run)
@@ -64,8 +57,9 @@ in the other family's panel.
 
 - OMP ≥ 18 with the task-agent, skills and plugin features
 - `node` ≥ 18 (for the .mjs scripts); `bash` only for the manual installer
-- Credentials for whichever provider the seats route through (currently `nanogpt`; keys live in
-  `~/.omp/agent/.env` — keep it `chmod 600`)
+- Models for the seats: any providers OMP can reach (built-in or a custom OpenAI-compatible
+  gateway / local router declared in `~/.omp/agent/models.yml`). Keys belong in
+  `~/.omp/agent/.env` (`chmod 600`), referenced by env-var name from `models.yml`
 
 ## Install (plugin, recommended)
 
@@ -91,8 +85,7 @@ those copies once the plugin is installed:
 ./install.sh --uninstall
 ```
 
-Model routing survives upgrades because it lives in OMP config, not in the plugin (see
-"Swap a seat's model on command" below).
+Then assign models to the seats (next section) — the plugin ships none.
 
 ## Install (manual copy, fallback)
 
@@ -167,69 +160,46 @@ untrusted PRs from strangers (the same caveat Anthropic ships with
 Reviewing a diff also ships it to whichever providers the seats route through; check that
 against your data-handling rules before pointing the panel at anything sensitive.
 
-## 🎛️ Model panels — current state & how to tune them
+## 🎛️ Configure your panel (required)
 
-Each `agents/rev-*.md` file is one **seat**. Its `model:` is the calibrated default and its
-`thinking-level:` the calibrated depth. A seat is active unless it carries `disable: true` or
-is listed in OMP's `task.disabledAgents`. **Never hardcode seat lists** — read
-`panel.mjs --prefix <family>`.
+Each `agents/rev-*.md` file is one **seat**. Shipped seats are neutral: `model: "@rev-quorum-a"`
+etc., a role alias with no provider, model, or thinking level behind it. OMP resolves a spawn's
+model as `task.agentModelOverrides.<seat>` → the seat's `model:` (the alias → `modelRoles.<seat>`)
+→ your session model. That last fallback is exactly what a quorum must not do, so `panel.mjs`
+reports a seat with no assignment as **UNCONFIGURED** and the skills refuse to spawn it.
 
-### Swap a seat's model on command (no file edits)
-
-OMP resolves a spawn's model as `task.agentModelOverrides.<seat>` → seat file `model:` →
-session model. The `task` tool has no per-call model parameter, so the override setting is the
-lever:
+Assign one model per seat, different vendors across seats, thinking level on the selector:
 
 ```yaml
 task:
   agentModelOverrides:
-    rev-quorum-glm: nanogpt/zai-org/glm-5.3:high   # provider/model[:thinking-level] or @role
+    rev-quorum-a: <provider>/<model>:medium     # general panel: 4 seats, 4 vendors
+    rev-quorum-b: <provider>/<model>:medium
+    rev-quorum-c: <provider>/<model>:medium
+    rev-quorum-d: <provider>/<model>:minimal
+    rev-sec-a: <provider>/<model>:max           # security panel: depth over speed
+    rev-sec-b: <provider>/<model>:xhigh
+    rev-sec-c: <provider>/<model>:medium
 ```
 
 | Scope | How |
 |---|---|
-| One session | `omp --config presets/<file>.yml` |
+| One session | `omp --config <overlay>.yml` |
 | One repo | `<repo>/.omp/config.yml` |
 | Everywhere | `~/.omp/agent/config.yml`, or the `/agents` hub in the TUI |
 
-`plugins/quorum-review/presets/override-template.yml` lists every seat with its calibrated pin;
-`local-only.yml` keeps a two-family panel on a local router; `backstops.yml` sets
-`task.maxRuntimeMs` so a seat that never yields becomes a failed seat instead of an open wait. `panel.mjs` shows persisted overrides as
-`(override; seat file pins …)`; session overlays are invisible to it, which is why the protocol
-checks each delivered result's resolved model. Full rules: [`presets/README.md`](plugins/quorum-review/presets/README.md).
+`plugins/quorum-review/presets/override-template.yml` is that block with placeholders;
+[`presets/README.md`](plugins/quorum-review/presets/README.md) has the rules (route-check first,
+different vendors, keys in `.env`). `panel.mjs` prints each seat's effective model and where it
+came from; session overlays are invisible to it, which is why the protocol checks each delivered
+result's resolved model.
 
-To change the **default** for everyone: edit the seat's `model:`/`thinking-level:` in
-`plugins/quorum-review/agents/`, then release (plugin) or re-run `./install.sh` (manual). To add a seat: copy a `rev-<family>-*.md`, rename file + `name:`, set `model:`.
-To park one: `disable: true`.
-
-### quorum-review (as committed)
-
-| Seat | Model | Notes |
-|---|---|---|
-| `rev-quorum-gem` | `nanogpt/google/gemini-3.7-flash` | Fast seat. `thinking-level: medium`. Verdict uncalibrated in both directions — weight its findings, not its vote |
-| `rev-quorum-glm` | `nanogpt/zai-org/glm-5.3` | Deepest standard reviewer; the only seat that caught both Flint seeded defects. `thinking-level: medium` (matches high's completeness at ~1/5 the time) |
-| `rev-quorum-grok` | `nanogpt/x-ai/grok-4.6` | Best yield discipline. `thinking-level: medium` (low was verdict-only on the seeded fail-open) |
-| `rev-quorum-nemo` | `nanogpt/nvidia/nemotron-3.5-lightning` | Cheap 4th vendor; corroborated a real unseeded defect on the ansible iteration. `thinking-level: minimal` |
-
-### security-quorum (as committed)
-
-| Seat | Model | Notes |
-|---|---|---|
-| `rev-sec-kimi` | `nanogpt/moonshotai/kimi-k3` | `thinking-level: max` — faster AND equal-or-better than high in every paired run |
-| `rev-sec-glm` | `nanogpt/zai-org/glm-5.3` | `thinking-level: xhigh` (only level that caught the Flint txid defect at full severity). **Note:** nanogpt clamps the route to `high` — re-benchmark pending |
-| `rev-sec-grok` | `nanogpt/x-ai/grok-4.6` | `thinking-level: medium`; caught the txid defect on both samples at P1, missed the fail-open sample (re-test flagged) |
-
-### Parked
-
-| Seat | Model | Why parked |
-|---|---|---|
-| `rev-quorum-deepseek` | `nanogpt/deepseek/deepseek-v4-pro-0813` | Vendor policy block on the previous gateway; route-check before re-enabling |
-| `rev-quorum-qwen` | `nanogpt/qwen3.8-max` | Flapped under the previous gateway's policy; route-check before re-enabling |
-| `rev-sec-gem` | `nanogpt/google/gemini-3.7-flash` | Cut on merit (0 detections in 8 defective-sample runs while voting `correct` at .95–1.0) |
-
-**Validate a seat routes** (5–15 s, in any OMP session): spawn it with a minimal task ("reply
-exactly OK, no tools"). Success = a structured verdict from the seat's own model (check the
-resolved model — a fallback onto your session model means the provider has no credentials).
+Adding a seat: copy a `rev-<family>-*.md`, rename file + `name:`, set `model: "@<new-name>"`,
+assign it a model in config. Parking one: `task.disabledAgents`, or `disable: true` in a local copy.
+Choosing models and levels: the seeded-defect harness in [`docs/benchmark.md`](docs/benchmark.md)
+and the level sweep in [`docs/thinking-levels.md`](docs/thinking-levels.md) show how the author
+calibrated a past panel; the numbers there are about those models on those routes, not shipped
+defaults.
 
 ### Seat prompt contract (all seats)
 
@@ -239,12 +209,12 @@ delegate), a repo-conventions rule (findings resting on a project rule cite it),
 you verified it" requirement, and an optional `category` used for clustering. Security seats
 add `<detection-criteria>`, `<exclusions>` (noise classes, each overridable by naming it in
 `--focus`), `<precedents>` (safe-by-default assertions), and a comma-string `cwe` field.
-`scripts/lint.mjs` enforces the shape; `install.sh` runs it.
+`scripts/lint.mjs` enforces the shape, including that seat files stay provider-neutral.
 
 ## Security-quorum detection tuning
 
 The security seats' `<detection-criteria>` block is the detection model, distilled from the
-generic classes of the security-context audit corpus (weak-crypto, secret-handling,
+generic classes of a wallet-software security audit corpus (weak-crypto, secret-handling,
 input-validation, integrity/spoofing, fail-open/entropy, supply-chain, concurrency,
 fee/amount). `<exclusions>` holds the noise classes; `<precedents>` the things that are safe
 unless the diff changes them. Iterate there as real runs surface misses — keep criteria
@@ -254,12 +224,13 @@ framework- and product-agnostic — then re-run `./install.sh`.
 
 | Symptom | Cause → Fix |
 |---|---|
-| Seat fails with `404 No endpoints available…` | Provider/account policy: disable or swap the seat (see overrides above) |
-| Seat fails with `400 Provider returned error` (empty body) | Usually a provider-side flake (retry solo, ONCE). If it persists while another seat on the same model succeeds, suspect the seat's output schema — an **array-typed** property 400s Gemini and 402s z-ai; `cwe` is a comma-separated string for that reason. Never reintroduce the array form |
+| Seat fails with `404 No endpoints available…` | Provider/account policy: assign the seat another model (see overrides above) |
+| Seat fails with `400 Provider returned error` (empty body) | Usually a provider-side flake (retry solo, ONCE). If it persists while another seat on the same model succeeds, suspect the seat's output schema — an **array-typed** property has broken more than one provider (400 empty body on one, a misleading 402 on another); `cwe` is a comma-separated string for that reason. Never reintroduce the array form |
 | Seat ends in `schema_violation` after a long run | The payload inside the error is the seat's output: save it with `"schema_violation": true`; dedupe parses it. Do not re-run for structure |
 | Result's resolved model is your session model (`resolvedModelIsFallback`) | The seat's provider has no working credentials; OMP fell back. Failed seat — fix credentials or override the seat's model |
-| `panel.mjs` shows an unexpected model | A persisted `task.agentModelOverrides` entry applies (it says so). Session overlays are not visible — check the resolved model on results |
-| `panel.mjs` note "omp not on PATH" | Effective models unknown; it shows seat-file pins only |
+| `panel.mjs` says UNCONFIGURED | No `task.agentModelOverrides.<seat>` / `modelRoles.<seat>` in persisted config. Assign one; a session overlay is not visible here |
+| `panel.mjs` shows an unexpected model | The source is printed per seat. Session overlays are not visible — check the resolved model on results |
+| `panel.mjs` note "omp not on PATH" | Client assignments unknown; alias-only seats show as UNCONFIGURED |
 | `packet.mjs` "no VCS detected" | Not a git/jj repo → pass `--files <paths>` |
 | Packet withheld a file ("secret-like name") | The rail matched the filename. If that file IS the surface under review, pass `--all-files` deliberately |
 | Packet `TRUNCATED` line names a file | Cut at `--limit` (default 100000 bytes/file); seats must read it from disk, or raise `--limit` |
@@ -268,7 +239,7 @@ framework- and product-agnostic — then re-run `./install.sh`.
 | Findings that are clearly the same never corroborate | Check paths in the files: clustering tolerates abs/rel forms but not different filenames; check `category` disagreement (different categories only cluster on exact title) |
 | Panel shows the other skill's seats | Wrong `--prefix` (families are strictly prefix-keyed) |
 | Reviews landed on `scout`/`reviewer`/local agents | Off-protocol. Re-run per SKILL.md step 4: seats only. If the seat agents are missing, run `install.sh` |
-| `install.sh` refuses: lint failed | Fix what `scripts/lint.mjs` prints (seat drift, write tool on a seat, `spawns:`, category enum mismatch); `--no-lint` forces |
+| `install.sh` refuses: lint failed | Fix what `scripts/lint.mjs` prints (seat drift, write tool on a seat, `spawns:`, category enum mismatch, a provider baked into a seat); `--no-lint` forces |
 | Skill runs an old script / two copies of a seat exist | A manual `install.sh` copy shadows the plugin. `./install.sh --uninstall`, then `omp plugin upgrade` |
 | Refutation result ignored ("no matching cluster") | The refuter changed the title; titles must be copied verbatim from the refute packet (dedupe also matches same file + overlapping lines) |
 

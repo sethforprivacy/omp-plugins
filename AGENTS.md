@@ -24,8 +24,8 @@ Two panel-review skills, one bundle:
   `plugins/quorum-review/` the single plugin (`omp plugin install quorum-review@quorum-review`).
 - `plugins/quorum-review/skills/<name>/SKILL.md` — one skill per dir. Frontmatter
   `panel_prefix:` names the seat family that skill's panel reads (`rev-quorum-` / `rev-sec-`).
-- `plugins/quorum-review/agents/rev-*.md` — ALL seat agents, both families, one dir; `model:`
-  pins the default model, `thinking-level:` the calibrated depth, `disable: true` parks a seat.
+- `plugins/quorum-review/agents/rev-*.md` — ALL seat agents, both families, one dir. Shipped
+  seats are NEUTRAL: `model: "@<seat-name>"` and no thinking level. Models are client config.
 - `plugins/quorum-review/skills/quorum-review/scripts/` — the SHARED protocol scripts (`panel`,
   `packet`, `dedupe`, `minipacket`), single source of truth. security-quorum's SKILL.md points
   here; both SKILL.md files resolve the dir at run start (plugin cache path first, manual path
@@ -47,10 +47,12 @@ shadow plugin files by name. Version bumps touch `.omp-plugin/marketplace.json` 
 
 ## Key invariants — do not break
 
-1. **Seat list is DYNAMIC.** Never hardcode panel composition in SKILL.md or docs. Run
-   `panel.mjs [--prefix <family>]`; it shows active seats with their EFFECTIVE model (seat pin
-   unless OMP `task.agentModelOverrides.<seat>` applies) and honors `disable: true` and OMP
-   `task.disabledAgents`. Families are keyed by filename prefix.
+1. **Seat list is DYNAMIC and models are CLIENT config.** Never hardcode panel composition,
+   providers, or model ids in SKILL.md, seat files, presets, or docs. Run `panel.mjs
+   [--prefix <family>]`; it shows active seats with the model OMP settings assign them
+   (`task.agentModelOverrides.<seat>` → `modelRoles.<seat>`), marks unassigned seats
+   UNCONFIGURED, and honors `disable: true` and `task.disabledAgents`. Families are keyed by
+   filename prefix.
 2. **All active seats are spawned in ONE `task` call**, each with the SAME brief (the packet
    path), so consensus means something. Seats are the `rev-*` agents only — `agent:` set on
    every entry, never `scout`/`reviewer`/`task`; a failed seat is reported, not replaced.
@@ -98,48 +100,43 @@ shadow plugin files by name. Version bumps touch `.omp-plugin/marketplace.json` 
 ## OMP mechanics you must know
 
 - `task` has **no per-spawn `model` parameter**. Resolution: `task.agentModelOverrides.<agent>`
-  → agent file `model:` → session model. Swap a seat's model via that setting (session:
-  `omp --config presets/<file>.yml`; repo: `<repo>/.omp/config.yml`; global: config.yml or
-  `/agents` hub). Selectors take `:level` suffixes and `@role` aliases. See `presets/README.md`.
+  → agent file `model:` (here always the alias `@<seat>` → `modelRoles.<seat>`) → session
+  model. Assign seat models via that setting (session: `omp --config <overlay>.yml`; repo:
+  `<repo>/.omp/config.yml`; global: config.yml or `/agents` hub). Selectors take `:level`
+  suffixes. See `presets/README.md`.
 - `omp config get` reads persisted config only, so `panel.mjs` cannot see a `--config`
   overlay — the delivered result's resolved model is the truth.
 - A model whose provider lacks credentials **falls back to the parent session model**
   silently apart from `resolvedModelIsFallback`. That is why invariant 7 exists.
 - Per-spawn `effort` (`lo|med|hi`) exists only when `task.enableEffort` is on (default off);
-  thinking depth otherwise comes from the seat's `thinking-level:` or a `:level` suffix on the
-  override. nanogpt clamps glm-5.3 `xhigh` to `high`.
+  thinking depth comes from the `:level` suffix on the assigned selector. Providers may clamp a
+  level to what the route exposes — check the seat session's recorded level.
 - Every `tasks[]` entry needs `agent:`; an entry without it runs on the generic agent on the
   session model. Pass the packet as an absolute path, never inline or as a `local://` URI.
 - `schemaMode` defaults to permissive: a retry-exhausted invalid result is delivered with a
   warning — treat it like a `schema_violation` payload (invariant 6).
 
-## Panel state (2026-09-02)
+## Panel state
 
-All seats route through **`nanogpt`** (since 2026-08-25; zero provider errors in retained logs).
-
-- quorum-review active: `rev-quorum-gem` gemini-3.7-flash `medium`; `rev-quorum-glm` glm-5.3
-  `medium`; `rev-quorum-grok` grok-4.6 `medium`; `rev-quorum-nemo` nemotron-3.5-lightning
-  `minimal`. Parked: deepseek-v4-pro-0813, qwen3.8-max (route-check before enabling).
-- security-quorum active: `rev-sec-kimi` kimi-k3 `max`; `rev-sec-glm` glm-5.3 `xhigh`
-  (clamped to `high` on nanogpt — re-benchmark pending); `rev-sec-grok` grok-4.6 `medium`.
-  Parked on merit: `rev-sec-gem` (0 detections in 8 defective-sample runs; do not re-enable
-  without new detection evidence).
-- Pins rest on `docs/thinking-levels.md` + `docs/benchmark.md`. Do not change a pin without new
-  benchmark data. Standing watch items: gem's verdict is unreliable in both directions (weight
-  findings, not vote); nemo missed both fail-open samples; `rev-sec-grok`'s fail-open miss
-  needs a re-test.
+There is none in the repo, by design (2026-09-02). Seats `rev-quorum-a..d` and `rev-sec-a..c` are
+slots; `task.agentModelOverrides.<seat>` (or `modelRoles.<seat>`) in the user's OMP config decides
+the model and `:level`. `panel.mjs` reports an unassigned seat as UNCONFIGURED and the skills do
+not spawn it. Never commit a provider, model id, key, or thinking level into a seat file or a
+preset; `lint.mjs` rejects provider routes in seat files. The calibration docs
+(`docs/benchmark.md`, `docs/thinking-levels.md`) describe how a past panel was measured — use the
+method, not the numbers.
 
 ## Gotchas from live runs
 
 - **`cwe` schema shape — the ARRAY form is the trap.** An output-schema property declared
-  `type: array` without `items` 400s Gemini (empty body) and 402s z-ai ("can only afford …" —
-  a schema problem wearing a billing error's clothes). `cwe` is a comma-separated **string** on
+  `type: array` without `items` broke two providers in live runs (one 400 with an empty body,
+  one 402 "can only afford …" — a schema problem wearing a billing error's clothes). `cwe` is a comma-separated **string** on
   every security seat. Never reintroduce the array form; if a seat 400s/402s solo while another
   seat on the same model succeeds, check this first.
-- **`schema_violation` after a complete review** (glm: `confidence` as an array; verdict enum)
-  has cost 14–24 minutes per occurrence. The payload is still the seat's output; save it.
-  Some glm security spawns never yielded at all (36–39 min of prose): a seat that never yields
-  is the failure, a slow one is not. `task.maxRuntimeMs` is the backstop if you want one.
+- **`schema_violation` after a complete review** (`confidence` as an array; verdict enum) has
+  cost 14–24 minutes per occurrence. The payload is still the seat's output; save it. Some deep
+  security spawns never yielded at all (36–39 min of prose): a seat that never yields is the
+  failure, a slow one is not. `task.maxRuntimeMs` is the backstop if you want one.
 - **Corroboration failed to form for mechanical reasons** in early runs: seats cite the same
   file as `/abs/x.cs`, `x.cs`, `src/x.cs`; dedupe now matches path suffixes. Hand-transcribed
   results (`severity: "P1"`, `area`) lose `priority`/`file_path`; dedupe parses them with a
@@ -150,8 +147,8 @@ All seats route through **`nanogpt`** (since 2026-08-25; zero provider errors in
 - "Deleted" means the FILE was deleted (`deleted file mode` marker) — never infer deletion from
   hunk shape; a deletion-only edit to a living file must stay in the packet.
 - The mean-confidence line is "(unweighted self-reported; not comparable across models)" for a
-  reason: gem sits near 1.0 at every depth while glm's confidence drops as it digs. Never rank
-  by it.
+  reason: one model sat near 1.0 at every depth while another's confidence dropped as it dug.
+  Never rank by it.
 - `dedupe --dir` scans every `.json` (its own `*.report.json` and non-result files excluded
   with a warning) — pass explicit result files for a clean run. Keep the two results dirs
   separate.
