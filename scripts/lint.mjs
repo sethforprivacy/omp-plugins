@@ -17,7 +17,10 @@
 //     same values in its <output> body (AGENTS.md invariant 10 — dedupe clusters on these strings)
 //   - body carries the one-finding-per-yield shape and the prompt-injection guard line
 //   - family seats share the same output-schema property set (so dedupe sees one shape)
-// Also: scripts/*.mjs parse (node --check) and install.sh exists and is executable.
+//   - every agents/*.md belongs to exactly one skill family (its prefix)
+// Also: all *.mjs parse (node --check) and install.sh exists and is executable.
+//
+// Layout: plugins/quorum-review/{skills/<skill>/SKILL.md, agents/rev-*.md, skills/quorum-review/scripts/}.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -77,8 +80,12 @@ function schemaPropertyNames(fm) {
   return names.sort();
 }
 
-const skillsDir = join(repoRoot, "skills");
-if (!existsSync(skillsDir)) { fail("skills/ missing"); }
+const pluginDir = join(repoRoot, "plugins", "quorum-review");
+const skillsDir = join(pluginDir, "skills");
+const agentsDir = join(pluginDir, "agents");
+if (!existsSync(skillsDir)) { fail("plugins/quorum-review/skills/ missing"); }
+const allAgentFiles = existsSync(agentsDir) ? readdirSync(agentsDir).filter((f) => f.endsWith(".md")).sort() : [];
+const claimed = new Set();
 const skillDirs = existsSync(skillsDir) ? readdirSync(skillsDir).filter((d) => statSync(join(skillsDir, d)).isDirectory()).sort() : [];
 if (skillDirs.length === 0) fail("no skills/<name>/ directories");
 
@@ -95,9 +102,9 @@ for (const skill of skillDirs) {
   if (!/^rev-[a-z]+-$/.test(prefix)) fail(`${skill}/SKILL.md: panel_prefix ${JSON.stringify(prefix)} should look like rev-<family>-`);
   ok(`${skill}/SKILL.md: frontmatter (panel_prefix ${prefix})`);
 
-  const agentsDir = join(dir, "agents");
-  const files = existsSync(agentsDir) ? readdirSync(agentsDir).filter((f) => f.endsWith(".md")).sort() : [];
-  if (files.length === 0) { fail(`${skill}: no agents/*.md seat files`); continue; }
+  const files = allAgentFiles.filter((f) => f.startsWith(prefix));
+  for (const f of files) claimed.add(f);
+  if (files.length === 0) { fail(`${skill}: no agents/${prefix}*.md seat files`); continue; }
 
   const familyCategories = new Map(); // seat -> categories
   const familyProps = new Map();
@@ -106,7 +113,6 @@ for (const skill of skillDirs) {
     const path = join(agentsDir, file);
     const stem = basename(file, ".md");
     const text = readFileSync(path, "utf8");
-    if (!stem.startsWith(prefix)) fail(`${skill}/agents/${file}: does not carry the family prefix ${prefix}`);
     const parsed = frontmatter(text);
     if (!parsed) { fail(`${skill}/agents/${file}: missing frontmatter block`); continue; }
     const { fm, body } = parsed;
@@ -161,13 +167,22 @@ for (const skill of skillDirs) {
   if (propSets.size > 1) fail(`${skill}: seats disagree on output-schema property names: ${[...propSets].join(" vs ")}`);
 }
 
-for (const s of readdirSync(join(repoRoot, "scripts")).filter((f) => f.endsWith(".mjs")).sort()) {
-  try {
-    execFileSync(process.execPath, ["--check", join(repoRoot, "scripts", s)], { stdio: "ignore" });
-    ok(`scripts/${s}: parses`);
-  } catch {
-    fail(`scripts/${s}: does not parse (node --check)`);
+for (const f of allAgentFiles) if (!claimed.has(f)) fail(`agents/${f}: matches no skill's panel_prefix — it would never be spawned`);
+
+const scriptDirs = [join(repoRoot, "scripts"), join(skillsDir, "quorum-review", "scripts")];
+for (const dir of scriptDirs) {
+  if (!existsSync(dir)) { fail(`${dir}: missing`); continue; }
+  for (const s of readdirSync(dir).filter((f) => f.endsWith(".mjs")).sort()) {
+    try {
+      execFileSync(process.execPath, ["--check", join(dir, s)], { stdio: "ignore" });
+      ok(`${dir.slice(repoRoot.length + 1)}/${s}: parses`);
+    } catch {
+      fail(`${dir.slice(repoRoot.length + 1)}/${s}: does not parse (node --check)`);
+    }
   }
+}
+for (const s of ["panel.mjs", "packet.mjs", "dedupe.mjs", "minipacket.mjs"]) {
+  if (!existsSync(join(skillsDir, "quorum-review", "scripts", s))) fail(`skills/quorum-review/scripts/${s}: missing (both SKILL.md files reference it)`);
 }
 const installer = join(repoRoot, "install.sh");
 if (!existsSync(installer)) fail("install.sh missing");

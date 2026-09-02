@@ -11,8 +11,16 @@ different remote model), spawned **in parallel**, then dedupe the findings acros
 rank by consensus, and present the report back **into this session**. It exists so one clumpy
 reviewer — or your local model — never decides alone whether work is ready to ship.
 
-The scripts hold the deterministic logic; you orchestrate. Scripts live in
-`~/.omp/agent/skills/quorum-review/scripts/` — always call them by absolute path.
+The scripts hold the deterministic logic; you orchestrate. They live in `scripts/` next to this
+SKILL.md. Resolve that directory ONCE at the start of a run and use it for every command below:
+
+```
+Q=$(ls -d ~/.omp/plugins/cache/plugins/*quorum-review*/skills/quorum-review/scripts \
+         ~/.omp/agent/skills/quorum-review/scripts 2>/dev/null | head -1); echo "$Q"
+```
+
+(plugin install first, manual `install.sh` copy second; if both exist, the manual copy shadows the
+plugin and should be removed with `install.sh --uninstall`). Below, `$Q` is that path.
 
 ## The panel is dynamic — read it, never hardcode it
 
@@ -22,7 +30,7 @@ swap a seat's model without touching files (see "Swapping seat models" below). `
 prints the **effective** model per active seat:
 
 ```
-node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
+node $Q/panel.mjs
 ```
 
 Add a seat: copy a `rev-quorum-*.md`, rename file + `name:`, set `model:`. Park one:
@@ -45,8 +53,8 @@ constraints the panel must respect.
 
 ### 2. Snapshot the panel
 ```
-node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs --json > /tmp/quorum-panel.json
-node ~/.omp/agent/skills/quorum-review/scripts/panel.mjs
+node $Q/panel.mjs --json > /tmp/quorum-panel.json
+node $Q/panel.mjs
 ```
 The printed names are the ONLY valid `agent:` values for this run, and the JSON is what
 `dedupe.mjs --panel` uses later for denominators and the provenance check. If it lists fewer
@@ -54,7 +62,7 @@ than 2 seats, stop and tell the user the panel cannot quorum.
 
 ### 3. Build the context packet — exactly once per round
 ```
-node ~/.omp/agent/skills/quorum-review/scripts/packet.mjs \
+node $Q/packet.mjs \
   --focus "<focus>" \
   --summary "<3-8 factual bullets: files, changes, decisions, context not visible in the diff>" \
   --out /tmp/quorum-packet.md
@@ -68,6 +76,8 @@ node ~/.omp/agent/skills/quorum-review/scripts/packet.mjs \
   those from disk; raise `--limit` if the cut lands in the code under review).
 - `--budget <bytes>` caps the whole packet (default 300000; `0` disables). `--all-files` keeps
   lockfiles AND allows secret-like names to be embedded — only when the focus needs them.
+- Hunk context is widened automatically (12 lines) when the packet fits the budget, else git's
+  default 3; the stderr line says which (`context N`). `--context <n>` pins it.
 - Do not rebuild the packet between spawn and dedupe; seats read it at spawn time.
 
 ### 4. Spawn ALL seats in ONE `task` call
@@ -116,7 +126,7 @@ Provenance check, per seat, before you save:
 
 ### 6. Dedupe + rank by consensus
 ```
-node ~/.omp/agent/skills/quorum-review/scripts/dedupe.mjs \
+node $Q/dedupe.mjs \
   ~/.omp/quorum-review/<seat>-<ts>.json ... \
   --panel /tmp/quorum-panel.json --out ~/.omp/quorum-review/report-<ts>.md
 ```
@@ -127,13 +137,39 @@ consensus promotes a finding but never buries a specific single-seat P0/P1 (the 
 those out). Clustering is category-aware and tolerant of absolute vs relative paths. The
 mean-confidence line is self-reported and not comparable across models — never rank by it.
 
+### 6b. Refutation pass (verify-then-report) — optional, one spawn
+Run it when the user asks for a strict pass, when the report has more than ~5 findings, or when
+any single-seat P0/P1 exists and you would rather verify all findings at once than arbitrate one:
+
+```
+node $Q/minipacket.mjs --report ~/.omp/quorum-review/report-<ts>.md.report.json \
+  --mode refute --select all --out /tmp/quorum-refute.md        # or --select top (P0/P1 only)
+```
+
+Spawn ONE seat — the deepest active seat that reported the fewest of the selected findings (a
+seat cannot refute its own claims; with only one such seat, use it) — with the task text:
+
+```
+task: Re-check every finding in /tmp/quorum-refute.md against the code it cites, per the
+      packet's instructions: one findings yield per finding, same title, body starting
+      CONFIRMED — <concrete trigger path> or REFUTED — <why, file:line>. Then the verdict yields.
+agent: <seat name>
+name:  <seat name>-refute
+```
+
+Save its result verbatim (`~/.omp/quorum-review/<seat>-refute-<ts>.json`), then re-run step 6
+with `--refuted <that file>`: REFUTED clusters move to a "Refuted in verification" section
+(shown, not actioned); CONFIRMED ones are marked ✔ verified. The refuter is not a panel vote.
+One pass only; never refute the refutation.
+
 ### 7. Present and act — in this session, immediately
 Show the report (including the packet stderr line and any provenance warnings), then:
 
 | Finding | Response |
 |---|---|
-| P0 or corroborated (≥2 seats) | Fix now; verify; then run the **targeted verify pass** |
-| Single-seat P0 | Not yours to adjudicate alone — **arbitration round** first |
+| P0 or corroborated (≥2 seats), or ✔ verified | Fix now; verify; then run the **targeted verify pass** |
+| Single-seat P0 | Not yours to adjudicate alone — **arbitration round** first (or the refutation pass above) |
+| Refuted in verification | Do not fix; keep it in the summary with the refuter's reason |
 | Single-seat P1–P3 | Judge on merit (read the cited code yourself); fix if defensible, else note why not |
 | Panel verdict split | Surface it, then run the **arbitration round** |
 
@@ -153,10 +189,14 @@ delivered, and the current verdict.
 At most ONCE per review, only when the verdict splits (both `correct` and `incorrect`
 present) or a **P0** is uncorroborated. Never for single-seat P1–P3.
 
-1. **Mini-packet** (`/tmp/quorum-arbitration.md`): the contested finding(s) verbatim; the
-   cited code ±20 lines read from disk; each seat's verdict + explanation with seat and model
-   names replaced by "Reviewer 1..N" (anonymized so arbitrators judge the code, not the
-   model's reputation).
+1. **Mini-packet** — build it, do not hand-write it:
+   ```
+   node $Q/minipacket.mjs --report ~/.omp/quorum-review/report-<ts>.md.report.json \
+     --mode arbitrate --out /tmp/quorum-arbitration.md   # --select contested is the default
+   ```
+   It carries the contested finding(s) verbatim, the cited code ±20 lines read from disk, and
+   each seat's verdict + explanation with seat and model names replaced by "Reviewer 1..N"
+   (anonymized so arbitrators judge the code, not the model's reputation).
 2. **Spawn set:** the reporting seat plus two non-reporting active seats (all active seats if
    only 3 are active). ONE `task` call. Seats only.
 3. **Task text:**
@@ -197,8 +237,11 @@ the route, step 5's provenance check is what proves which model actually reviewe
 - `panel.mjs [--json] [--prefix rev-quorum-] [--agents-dir <path>] [--no-omp]` — active seats
   with effective models; honors `disable: true` and OMP `task.disabledAgents`.
 - `packet.mjs --focus <t> [--summary <t>] [--files a,b] [--limit <bytes>] [--budget <bytes>]
-  [--all-files] [--out <path>] [--json]` — packet header carries `rev` and `fingerprint`;
+  [--context <n|auto>] [--all-files] [--out <path>] [--json]` — packet header carries `rev` and `fingerprint`;
   last stderr line reports bytes, omissions and truncations.
 - `dedupe.mjs <results...> [--dir <path>] [--panel <panel.json>] [--expected a,b] [--cwd <repo>]
-  [--out <path>] [--json]` — `--dir` scans every `*.json` (its own `*.report.json` excluded),
-  so use it only on a directory holding exactly this run's files.
+  [--refuted <result.json>] [--out <path>] [--json]` — `--dir` scans every `*.json` (its own
+  `*.report.json` and non-result files excluded), so use it only on a directory holding exactly
+  this run's files. `--json` writes `<out>.report.json`, the input for `minipacket.mjs`.
+- `minipacket.mjs --report <report.json> --mode refute|arbitrate [--select all|top|contested|1,3]
+  [--security] [--cwd <repo>] [--context 20] --out <path>` — anonymized follow-up packets.

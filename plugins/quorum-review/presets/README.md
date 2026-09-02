@@ -1,6 +1,6 @@
 # Presets — swap seat models on command, without touching seat files
 
-Each seat's `model:` in `skills/*/agents/rev-*.md` is the calibrated default. To run a
+Each seat's `model:` in `plugins/quorum-review/agents/rev-*.md` is the calibrated default. To run a
 seat on a different model for one session, one repo, or permanently, use OMP's own
 per-agent override setting — the seat files, the installed copies and this repo stay untouched:
 
@@ -15,7 +15,7 @@ Three ways to apply it, most to least temporary:
 
 | Scope | How |
 |---|---|
-| One session | `omp --config presets/<file>.yml` (any config.yml-style overlay; repeatable) |
+| One session | `omp --config <path-to>/presets/<file>.yml` (any config.yml-style overlay; repeatable). Plugin installs keep the presets under `~/.omp/plugins/cache/plugins/*quorum-review*/presets/` |
 | One repo | put the block in `<repo>/.omp/config.yml` |
 | Everywhere | put the block in `~/.omp/agent/config.yml`, or use the `/agents` hub in the TUI (persists the same setting) |
 

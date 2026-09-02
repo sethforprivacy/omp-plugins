@@ -17,6 +17,12 @@
 //   --panel <path>      Same as --expected, read from `panel.mjs --json > <path>` (the seat list
 //                       captured at spawn time). Also cross-checks each result's resolvedModel
 //                       against the panel's effective model and flags mismatches.
+//   --refuted <path>    A refutation-pass result (the seat output produced from a
+//                       `minipacket.mjs --mode refute` packet). Its findings are matched to clusters
+//                       by title (or same file + overlapping lines); a body starting with REFUTED
+//                       moves the cluster into a "Refuted in verification" section (shown, not
+//                       actioned), CONFIRMED marks it verified. The refuter never enters the panel
+//                       vote and is never a reviewer.
 //
 // File paths are normalized before clustering (absolute → relative to --cwd or the process cwd;
 // a path that is a suffix of another counts as the same file), because seats cite the same file
@@ -56,7 +62,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const args = { files: [], dir: null, out: null, json: false, expected: [], panel: null, cwd: process.cwd() };
+  const args = { files: [], dir: null, out: null, json: false, expected: [], panel: null, cwd: process.cwd(), refuted: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => argv[++i];
@@ -66,6 +72,7 @@ function parseArgs(argv) {
     else if (a === "--cwd") args.cwd = val();
     else if (a === "--expected") args.expected = (val() || "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--panel") args.panel = val();
+    else if (a === "--refuted") args.refuted = val();
     else if (a.startsWith("-")) fail(`unknown arg ${a}`);
     else args.files.push(a);
   }
@@ -384,6 +391,36 @@ merged.sort((a, b) => {
   return 0;
 });
 
+// Refutation pass: annotate clusters from a refuter's result (never a panel member).
+let refuter = null;
+if (args.refuted) {
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(args.refuted, "utf8"));
+  } catch (e) {
+    fail(`--refuted ${args.refuted}: ${e.message}`);
+  }
+  const ex = extract(raw);
+  refuter = { source: args.refuted.replace(/\.json$/i, "").split(/[\\/]/).pop(), resolvedModel: ex.resolvedModel, matched: 0, unmatched: [] };
+  for (const f of ex.findings) {
+    if (!f || typeof f !== "object") continue;
+    const body = String(f.body || "");
+    const m = body.match(/^\s*(CONFIRMED|REFUTED)\b[\s:\-—]*/i);
+    if (!m) { refuter.unmatched.push(`${f.title} (body does not start with CONFIRMED/REFUTED)`); continue; }
+    const verdict = m[1].toUpperCase();
+    const key = normalizePath(f.file_path || f.file || f.area, args.cwd);
+    const probe = { fileKey: key, title: f.title, line_start: Number.isFinite(f.line_start) ? f.line_start : null, line_end: Number.isFinite(f.line_end) ? f.line_end : null };
+    const target = merged.find((c) => normalizeTitle(c.title) === normalizeTitle(f.title))
+      || merged.find((c) => sameFile(normalizePath(c.file_path, args.cwd), key) && rangesOverlap({ line_start: c.line_start, line_end: c.line_end }, probe));
+    if (!target) { refuter.unmatched.push(`${f.title} (no matching cluster)`); continue; }
+    target.verification = { verdict, reason: body.slice(m[0].length).trim(), priority: parsePriority(f), confidence: Number.isFinite(f.confidence) ? f.confidence : null };
+    refuter.matched++;
+  }
+  for (const u of refuter.unmatched) console.error(`dedupe: warning — refutation finding ignored: ${u}`);
+}
+const refuted = merged.filter((m) => m.verification?.verdict === "REFUTED");
+const live = merged.filter((m) => m.verification?.verdict !== "REFUTED");
+
 // Panel verdict.
 const votes = { correct: 0, incorrect: 0, missing: 0 };
 for (const r of reviewers) {
@@ -395,9 +432,9 @@ for (const r of reviewers) {
 const confs = reviewers.map((r) => r.verdict.confidence).filter((c) => Number.isFinite(c));
 const meanConf = confs.length ? confs.reduce((a, b) => a + b, 0) / confs.length : null;
 
-const corr = merged.filter((m) => m.corroborated).length;
-const uniq = merged.length - corr;
-const singleHigh = merged.filter((m) => !m.corroborated && m.priority <= 1);
+const corr = live.filter((m) => m.corroborated).length;
+const uniq = live.length - corr;
+const singleHigh = live.filter((m) => !m.corroborated && m.priority <= 1);
 const fallbackSeats = reviewers.filter((r) => r.fallback).map((r) => r.source);
 const mismatched = reviewers.filter((r) => r.modelMismatch).map((r) => `${r.source} (ran ${r.resolvedModel}, panel expected ${r.expectedModel})`);
 
@@ -411,7 +448,8 @@ if (unexpected.length) L.push(`- ⚠ results not matching any expected seat (non
 if (fallbackSeats.length) L.push(`- ⚠ ran on a FALLBACK model (parent-session model, not the seat's pin — not an independent vote): ${fallbackSeats.join(", ")}`);
 if (mismatched.length) L.push(`- ⚠ resolved model differs from the panel's effective model: ${mismatched.join("; ")}`);
 if (meanConf !== null) L.push(`- mean verdict confidence: ${meanConf.toFixed(2)} (unweighted self-reported; not comparable across models)`);
-L.push(`- findings: ${merged.length} unique (${corr} corroborated by ≥2, ${uniq} single-reviewer${singleHigh.length ? `; **${singleHigh.length} single-seat P0/P1 — judge on merit or arbitrate, never drop for lack of consensus**` : ""})`);
+L.push(`- findings: ${live.length} unique (${corr} corroborated by ≥2, ${uniq} single-reviewer${singleHigh.length ? `; **${singleHigh.length} single-seat P0/P1 — judge on merit or arbitrate, never drop for lack of consensus**` : ""})${refuted.length ? ` · ${refuted.length} refuted in verification (listed last)` : ""}`);
+if (refuter) L.push(`- verification pass: ${refuter.source}${refuter.resolvedModel ? ` [${refuter.resolvedModel}]` : ""} re-checked ${refuter.matched} finding(s)${refuter.unmatched.length ? `; ${refuter.unmatched.length} unmatched (see stderr)` : ""}`);
 L.push("");
 L.push("## Panel verdict");
 L.push("");
@@ -428,22 +466,29 @@ for (const s of missing) L.push(`- **${s}**: no result (seat failed or was not s
 L.push("");
 L.push("## Findings");
 L.push("");
-if (merged.length === 0) {
-  L.push("_No findings reported by any reviewer._");
-} else {
-  for (const m of merged) {
+function renderFinding(m) {
     const loc = m.file_path === "(no file)" ? "(no file)" : `\`${m.file_path}\``;
     const range = m.line_start != null && m.line_end != null ? `:${m.line_start}-${m.line_end}` : "";
     const corroboration = m.corroborated
       ? ` · **${m.count}/${panelSize}** (${m.reviewers.join(", ")})`
       : ` · 1/${panelSize} (${m.reviewers.join(", ")})`;
     const cat = m.category ? ` (${m.category})` : "";
-    L.push(`### ${loc}${range} · ${renderPriority(m.priority)}${cat} · conf ${m.confidence.toFixed(2)}${corroboration}`);
+    const verified = m.verification?.verdict === "CONFIRMED" ? " · ✔ verified" : "";
+    L.push(`### ${loc}${range} · ${renderPriority(m.priority)}${cat} · conf ${m.confidence.toFixed(2)}${corroboration}${verified}`);
     L.push("");
     L.push(`**${m.title}**`);
     L.push("");
     L.push(m.cwe ? `${m.body} (CWE: ${m.cwe})` : m.body);
+    if (m.verification) L.push("", `> ${m.verification.verdict}${m.verification.priority != null ? ` (re-assessed ${renderPriority(m.verification.priority)})` : ""}: ${m.verification.reason || "(no reason given)"}`);
     L.push("");
+}
+if (live.length === 0 && refuted.length === 0) {
+  L.push("_No findings reported by any reviewer._");
+} else {
+  for (const m of live) renderFinding(m);
+  if (refuted.length) {
+    L.push("## Refuted in verification (shown for the record, not actioned)", "");
+    for (const m of refuted) renderFinding(m);
   }
 }
 
@@ -455,6 +500,7 @@ if (args.out) {
       reviewers: reviewers.map((r) => ({ source: r.source, seat: r.seat, resolvedModel: r.resolvedModel, fallback: r.fallback, ...r.verdict })),
       panel: { expected: args.expected, delivered: reviewers.length, size: panelSize, missing, unexpected },
       verdict: { votes, meanConfidence: meanConf },
+      verification: refuter,
       findings: merged,
     }, null, 2));
   }
@@ -471,7 +517,7 @@ if (args.out) {
   }
 }
 console.error(
-  `dedupe: ${reviewers.length}/${panelSize} reviewer file(s), ${merged.length} unique findings (${corr} corroborated, ${singleHigh.length} single-seat P0/P1)` +
+  `dedupe: ${reviewers.length}/${panelSize} reviewer file(s), ${live.length} unique findings (${corr} corroborated, ${singleHigh.length} single-seat P0/P1${refuted.length ? `, ${refuted.length} refuted` : ""})` +
   (missing.length ? `; NO RESULT from: ${missing.join(", ")}` : "") +
   (fallbackSeats.length ? `; FALLBACK model: ${fallbackSeats.join(", ")}` : "") +
   (mismatched.length ? `; MODEL MISMATCH: ${mismatched.length}` : "")

@@ -12,8 +12,15 @@ consensus and bring the report back **into this session**. It exists so a single
 or the author's own bias — never decides alone whether a change is safe. Scope stays small
 on purpose; if it grows past one surface, split it into separate passes.
 
-The scripts are the shared bundle scripts, installed at
-`~/.omp/agent/skills/security-quorum/scripts/` — always call them by absolute path.
+The scripts are the shared bundle scripts, which live in the sibling `quorum-review` skill's
+`scripts/` directory. Resolve it ONCE at the start of a run and use it for every command below:
+
+```
+Q=$(ls -d ~/.omp/plugins/cache/plugins/*quorum-review*/skills/quorum-review/scripts \
+         ~/.omp/agent/skills/quorum-review/scripts 2>/dev/null | head -1); echo "$Q"
+```
+
+Below, `$Q` is that path.
 
 ## The panel is dynamic — read it, never hardcode it
 
@@ -23,7 +30,7 @@ Seats are the `rev-sec-*.md` agent files in `~/.omp/agent/agents/` (a separate f
 models"). `panel.mjs` prints the **effective** model per active seat:
 
 ```
-node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
+node $Q/panel.mjs --prefix rev-sec-
 ```
 
 Detection tuning lives in the seat prompts, not here: `<detection-criteria>` (what to hunt),
@@ -50,15 +57,15 @@ surface, say so and narrow.
 
 ### 2. Snapshot the panel
 ```
-node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec- --json > /tmp/sec-quorum-panel.json
-node ~/.omp/agent/skills/security-quorum/scripts/panel.mjs --prefix rev-sec-
+node $Q/panel.mjs --prefix rev-sec- --json > /tmp/sec-quorum-panel.json
+node $Q/panel.mjs --prefix rev-sec-
 ```
 The printed names are the ONLY valid `agent:` values for this run; the JSON feeds
 `dedupe.mjs --panel`. Fewer than 2 seats ⇒ stop, the panel cannot quorum.
 
 ### 3. Build the context packet — exactly once per round
 ```
-node ~/.omp/agent/skills/security-quorum/scripts/packet.mjs \
+node $Q/packet.mjs \
   --focus "<focus incl. attacker model>" \
   --summary "<3-8 factual bullets: the change, trust boundaries, prior findings>" \
   --out /tmp/sec-quorum-packet.md
@@ -72,6 +79,8 @@ node ~/.omp/agent/skills/security-quorum/scripts/packet.mjs \
   code under review).
 - `--all-files` also keeps lockfiles in the diff — do that when the *supply chain* is the
   surface, since a lockfile change is exactly the finding you want then.
+- Hunk context widens to 12 lines automatically when the packet fits the budget (stderr says
+  `context N`); `--context <n>` pins it.
 - Deletion-only edits to living files stay in the packet (a removed check is what a security
   pass must see); only whole-file deletions are listed by name.
 
@@ -113,7 +122,7 @@ Provenance check, per seat, before saving:
 
 ### 6. Dedupe + rank by consensus
 ```
-node ~/.omp/agent/skills/security-quorum/scripts/dedupe.mjs \
+node $Q/dedupe.mjs \
   ~/.omp/security-quorum/<seat>-<ts>.json ... \
   --panel /tmp/sec-quorum-panel.json --out ~/.omp/security-quorum/report-<ts>.md
 ```
@@ -122,13 +131,39 @@ model mismatches are flagged. Ranking is priority first, then corroboration, the
 — a specific single-seat P0/P1 is called out, never buried. `cwe` is rendered per finding.
 Self-reported confidence is not comparable across models; never rank security findings by it.
 
+### 6b. Refutation pass (verify-then-report) — optional, one spawn
+Run it on request, when the report has more than ~5 findings, or when a single-seat P0/P1 exists
+and you would rather verify every finding at once than arbitrate one:
+
+```
+node $Q/minipacket.mjs --report ~/.omp/security-quorum/report-<ts>.md.report.json \
+  --mode refute --select all --security --out /tmp/sec-quorum-refute.md
+```
+
+Spawn ONE seat — the deepest active seat that reported the fewest of the selected findings (with
+only one such seat, use it) — with:
+
+```
+task: Re-check every finding in /tmp/sec-quorum-refute.md against the code it cites, per the
+      packet's instructions: one findings yield per finding, same title, body starting
+      CONFIRMED — <attacker-controlled source, sink, missing control> or REFUTED — <why,
+      file:line>. Then the verdict yields.
+agent: <seat name>
+name:  <seat name>-refute
+```
+
+Save its result verbatim (`~/.omp/security-quorum/<seat>-refute-<ts>.json`) and re-run step 6
+with `--refuted <that file>`. REFUTED clusters are shown under "Refuted in verification", never
+dropped; CONFIRMED ones are marked ✔ verified. One pass only; the refuter is not a panel vote.
+
 ### 7. Present and act — in this session, immediately
 Show the report (with the packet stderr line and any provenance warnings), then:
 
 | Finding | Response |
 |---|---|
-| P0/P1 or corroborated (≥2 seats) | Fix now; verify; then the **targeted verify pass** |
-| Single-seat P0/P1 | Not yours to adjudicate alone — **arbitration round** first |
+| P0/P1 or corroborated (≥2 seats), or ✔ verified | Fix now; verify; then the **targeted verify pass** |
+| Single-seat P0/P1 | Not yours to adjudicate alone — **arbitration round** first (or the refutation pass above) |
+| Refuted in verification | Do not fix; keep it in the summary with the refuter's reason |
 | Single-seat P2/P3 | Judge on merit (read the cited path yourself); fix if defensible, else note why not |
 | Panel verdict split | Surface it, then the **arbitration round** |
 
@@ -147,9 +182,13 @@ never bury a corroborated P1.
 At most ONCE per review, only when the verdict splits or a **P0 or P1** is uncorroborated.
 Never for single-seat P2/P3.
 
-1. **Mini-packet** (`/tmp/sec-quorum-arbitration.md`): the contested finding(s) verbatim; the
-   cited code ±20 lines read from disk; each seat's verdict + explanation with seat and model
-   names replaced by "Reviewer 1..N".
+1. **Mini-packet** — build it, do not hand-write it:
+   ```
+   node $Q/minipacket.mjs --report ~/.omp/security-quorum/report-<ts>.md.report.json \
+     --mode arbitrate --security --out /tmp/sec-quorum-arbitration.md
+   ```
+   It carries the contested finding(s) verbatim, the cited code ±20 lines from disk, and each
+   seat's verdict + explanation with seat and model names replaced by "Reviewer 1..N".
 2. **Spawn set:** the reporting seat plus two non-reporting active seats (all active if only
    3). ONE `task` call. Seats only.
 3. **Task text:**
@@ -185,5 +224,5 @@ session via `omp --config <overlay.yml>`, per repo in `<repo>/.omp/config.yml`, 
 ## Tooling reference
 
 Same scripts and flags as quorum-review (`panel.mjs --prefix rev-sec-`, `packet.mjs`,
-`dedupe.mjs --panel`); see that skill's tooling reference. Detection tuning happens in the
+`dedupe.mjs --panel [--refuted]`, `minipacket.mjs --security`); see that skill's tooling reference. Detection tuning happens in the
 `rev-sec-*.md` seat prompts — iterate there, re-run `install.sh`, never in this file.

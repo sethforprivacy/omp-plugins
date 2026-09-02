@@ -18,9 +18,11 @@ Last verified:
 
 - 2026-09-02 — hardening pass off ~12 real runs' traces + a survey of peer tools
   ([`docs/review-2026-09-02.md`](docs/review-2026-09-02.md)): effective-model panel, secret
-  rail + fingerprint in packets, panel-aware dedupe with provenance checks, `lint.mjs`, seats
-  made leaves, SKILL.md files rewritten as checklists, `presets/` for on-command model swaps.
-  Mechanical smoke tests pass; not yet exercised on a live panel.
+  rail + fingerprint + auto context in packets, panel-aware dedupe with provenance checks,
+  `lint.mjs`, seats made leaves, SKILL.md files rewritten as checklists, `presets/` for
+  on-command model swaps, an optional refutation pass (`minipacket.mjs` + `dedupe --refuted`),
+  and packaging as an OMP plugin with CI. Mechanical smoke tests pass; not yet exercised on a
+  live panel.
 - 2026-08-25 — all seats moved from OpenRouter to the `nanogpt` provider (same model IDs);
   routes clean in every run since, zero provider errors in retained logs.
 - 2026-08-20 — seeded-defect benchmark iterations 1–2 ([`docs/benchmark.md`](docs/benchmark.md)):
@@ -32,22 +34,27 @@ Last verified:
 
 ```
 repo root/
-  scripts/                  ← SHARED protocol scripts (single source of truth)
-    panel.mjs               ← ACTIVE seats for a family, with EFFECTIVE models (--prefix, --json)
-    packet.mjs              ← focus + summary + diff/untracked contents; secret rail; fingerprint
-    dedupe.mjs              ← merges results, clusters findings, consensus report (--panel)
-    lint.mjs                ← seat/skill consistency lint; install.sh runs it first
-  skills/
-    quorum-review/
-      SKILL.md              ← general panel-review protocol (panel_prefix: rev-quorum-)
-      agents/rev-quorum-*.md ← one panel seat per file; `model:` pins the model
-    security-quorum/
-      SKILL.md              ← focused security-review protocol (panel_prefix: rev-sec-)
-      agents/rev-sec-*.md   ← security seats; detection criteria/exclusions/precedents live here
-  presets/                  ← config overlays for swapping seat models on command (+ README)
-  docs/                     ← benchmark, thinking-level calibration, review notes
-  install.sh                ← idempotent multi-skill installer (+ lint, backup, --dry-run)
-  README.md, AGENTS.md
+  .omp-plugin/marketplace.json   ← OMP marketplace catalog (this repo IS the marketplace)
+  plugins/quorum-review/         ← the plugin
+    package.json                 ← version (kept equal to the catalog by validate-marketplace)
+    agents/rev-quorum-*.md       ← general panel seats; `model:` pins the model
+    agents/rev-sec-*.md          ← security seats; detection criteria/exclusions/precedents live here
+    skills/quorum-review/
+      SKILL.md                   ← general panel-review protocol (panel_prefix: rev-quorum-)
+      scripts/                   ← the SHARED protocol scripts (single source of truth)
+        panel.mjs                ← ACTIVE seats for a family, with EFFECTIVE models
+        packet.mjs               ← focus + summary + diff; secret rail; fingerprint; auto context
+        dedupe.mjs               ← merges results, clusters, consensus report (--panel, --refuted)
+        minipacket.mjs           ← anonymized follow-up packets: refutation pass / arbitration
+    skills/security-quorum/
+      SKILL.md                   ← focused security-review protocol (panel_prefix: rev-sec-);
+                                   uses the quorum-review skill's scripts/
+    presets/                     ← config overlays: model swaps, runtime backstops (+ README)
+  scripts/lint.mjs               ← seat/skill consistency lint (CI + install.sh)
+  scripts/validate-marketplace.mjs ← catalog/plugin integrity (CI)
+  install.sh                     ← MANUAL install fallback (+ --uninstall, --dry-run)
+  docs/, bench/                  ← benchmark, thinking-level calibration, review notes, seeded patches
+  .github/workflows/ci.yml       ← lint + validate + script smoke tests (SHA-pinned actions)
 ```
 
 Seat families are keyed by filename prefix (`rev-quorum-*`, `rev-sec-*`). A seat never appears
@@ -55,37 +62,55 @@ in the other family's panel.
 
 ## Requirements (target machine)
 
-- OMP ≥ 18 with the task-agent + skills features
-- `bash`, `node` ≥ 18 (for the .mjs scripts)
+- OMP ≥ 18 with the task-agent, skills and plugin features
+- `node` ≥ 18 (for the .mjs scripts); `bash` only for the manual installer
 - Credentials for whichever provider the seats route through (currently `nanogpt`; keys live in
   `~/.omp/agent/.env` — keep it `chmod 600`)
 
-## Install
+## Install (plugin, recommended)
 
 ```bash
-git clone <your private repo URL> omp-skills
-cd omp-skills
-./install.sh           # lints, then copies every skill under skills/ to OMP global paths
-./install.sh --dry-run # preview first, if you like
+omp plugin marketplace add sethforprivacy/quorum-review
+omp plugin install quorum-review@quorum-review
 ```
 
-What it does (idempotent, re-run after `git pull` at any time):
+Upgrading — `omp plugin upgrade` compares against a **cached copy of the catalog**, so refresh it
+first or it reports "up to date":
 
-- Runs `scripts/lint.mjs` and refuses to install a bundle that fails it (`--no-lint` to force)
-- For each `skills/<name>/`: `SKILL.md` + shared scripts → `~/.omp/agent/skills/<name>/`
-- All `agents/rev-*.md` (every family) → `~/.omp/agent/agents/`
-- Backs up any file it replaces (timestamped into `$OMP_HOME/skills-backup-<ts>/`, only if
-  it differs)
-- Prints each skill's active panel with **effective** models via `panel.mjs`
+```bash
+omp plugin marketplace update quorum-review
+omp plugin upgrade quorum-review@quorum-review
+omp plugin list
+```
 
-Overrides for nonstandard/test installs: `QUORUM_AGENTS_DIR`, `QUORUM_SKILLS_DIR`, `OMP_HOME`.
+Hand-copied files in `~/.omp/agent/agents/rev-*.md` or `~/.omp/agent/skills/{quorum-review,
+security-quorum}` **shadow plugin files by name**. If you previously used `install.sh`, remove
+those copies once the plugin is installed:
 
-Uninstall: remove `~/.omp/agent/skills/{quorum-review,security-quorum}` and the `rev-*` seat
-files; backups live in `$OMP_HOME/skills-backup-*`.
+```bash
+./install.sh --uninstall
+```
 
-**Editing a seat file and not re-running `./install.sh` leaves the old copy live.** Reinstall
-after every seat/prompt change (or move to the plugin packaging recommended in
-`docs/review-2026-09-02.md`).
+Model routing survives upgrades because it lives in OMP config, not in the plugin (see
+"Swap a seat's model on command" below).
+
+## Install (manual copy, fallback)
+
+```bash
+git clone https://github.com/sethforprivacy/quorum-review.git && cd quorum-review
+./install.sh           # lints, then copies skills + scripts + seats to OMP global paths
+./install.sh --dry-run # preview first
+```
+
+What it does (idempotent, re-run after `git pull`): runs `scripts/lint.mjs` and refuses a failing
+bundle (`--no-lint` to force); copies each `SKILL.md` to `~/.omp/agent/skills/<name>/`, the
+protocol scripts to `~/.omp/agent/skills/quorum-review/scripts/` only, and all `rev-*.md` seats to
+`~/.omp/agent/agents/`; backs up anything it replaces into `$OMP_HOME/skills-backup-<ts>/`; prints
+each panel with effective models; warns if a plugin install exists (the copies would shadow it).
+Overrides for test installs: `QUORUM_AGENTS_DIR`, `QUORUM_SKILLS_DIR`, `OMP_HOME`.
+
+**Editing a seat file and not re-running `./install.sh` leaves the old copy live** — with the
+plugin, `omp plugin upgrade` is the update path and this drift cannot happen.
 
 ## How it works
 
@@ -99,7 +124,8 @@ after every seat/prompt change (or move to the plugin packaging recommended in
    **secret-like filenames** (`.env*`, keys, `*token*`, …) are listed but never embedded
    (`--all-files` overrides both); binaries are never embedded. `--budget` caps the whole
    packet (default 300000 bytes) by dropping the largest patches with a "read the file
-   directly" note. The header carries the VCS `rev` and a `fingerprint` (sha256 of exactly what
+   directly" note; hunk context widens to 12 lines automatically when the packet fits the
+   budget. The header carries the VCS `rev` and a `fingerprint` (sha256 of exactly what
    the seats see); the last stderr line reports bytes, omissions and `TRUNCATED` files.
 4. **Parallel spawn** — ONE `task` call, one entry per active seat, identical brief. **Seats
    only**: `agent:` is the exact seat name on every entry; bundled agents (`scout`, `reviewer`,
@@ -114,9 +140,15 @@ after every seat/prompt change (or move to the plugin packaging recommended in
    ranks **priority first** then corroboration, lists expected seats with no result, flags
    model mismatches/fallbacks, and calls out single-seat P0/P1 findings so consensus never
    buries them.
+6b. **Refutation pass (optional, one spawn)** — `minipacket.mjs --mode refute` builds an
+   anonymized packet of the deduped findings with the cited code; one seat that did not report
+   them must name a concrete trigger path (`CONFIRMED — …`) or refute each (`REFUTED — …`).
+   `dedupe.mjs --refuted` then marks verified findings and moves refuted ones to a
+   "shown, not actioned" section. The verify-then-report pattern behind Anthropic's Code Review.
 7. **Act** — P0 (P0/P1 security) or corroborated findings get fixed; single-seat findings are
    judged on merit; verdict splits and uncorroborated P0s go to **one** anonymized arbitration
-   round (reporting seat + two others; ≥2 AGREE ⇒ fix, majority DISAGREE ⇒ "disputed").
+   round (`minipacket.mjs --mode arbitrate`; reporting seat + two others; ≥2 AGREE ⇒ fix,
+   majority DISAGREE ⇒ "disputed").
 8. **Verify the fix, narrowly** — a small packet scoped to the fix (its fingerprint must differ
    from the original run) goes to just the seats that reported the finding.
 
@@ -160,13 +192,14 @@ task:
 | One repo | `<repo>/.omp/config.yml` |
 | Everywhere | `~/.omp/agent/config.yml`, or the `/agents` hub in the TUI |
 
-`presets/override-template.yml` lists every seat with its calibrated pin; `presets/local-only.yml`
-keeps a two-family panel on a local router. `panel.mjs` shows persisted overrides as
+`plugins/quorum-review/presets/override-template.yml` lists every seat with its calibrated pin;
+`local-only.yml` keeps a two-family panel on a local router; `backstops.yml` sets
+`task.maxRuntimeMs` so a seat that never yields becomes a failed seat instead of an open wait. `panel.mjs` shows persisted overrides as
 `(override; seat file pins …)`; session overlays are invisible to it, which is why the protocol
-checks each delivered result's resolved model. Full rules: [`presets/README.md`](presets/README.md).
+checks each delivered result's resolved model. Full rules: [`presets/README.md`](plugins/quorum-review/presets/README.md).
 
-To change the **default** for everyone: edit the seat's `model:`/`thinking-level:`, re-run
-`./install.sh`. To add a seat: copy a `rev-<family>-*.md`, rename file + `name:`, set `model:`.
+To change the **default** for everyone: edit the seat's `model:`/`thinking-level:` in
+`plugins/quorum-review/agents/`, then release (plugin) or re-run `./install.sh` (manual). To add a seat: copy a `rev-<family>-*.md`, rename file + `name:`, set `model:`.
 To park one: `disable: true`.
 
 ### quorum-review (as committed)
@@ -236,22 +269,30 @@ framework- and product-agnostic — then re-run `./install.sh`.
 | Panel shows the other skill's seats | Wrong `--prefix` (families are strictly prefix-keyed) |
 | Reviews landed on `scout`/`reviewer`/local agents | Off-protocol. Re-run per SKILL.md step 4: seats only. If the seat agents are missing, run `install.sh` |
 | `install.sh` refuses: lint failed | Fix what `scripts/lint.mjs` prints (seat drift, write tool on a seat, `spawns:`, category enum mismatch); `--no-lint` forces |
+| Skill runs an old script / two copies of a seat exist | A manual `install.sh` copy shadows the plugin. `./install.sh --uninstall`, then `omp plugin upgrade` |
+| Refutation result ignored ("no matching cluster") | The refuter changed the title; titles must be copied verbatim from the refute packet (dedupe also matches same file + overlapping lines) |
 
 ## Dev / tuning loop
 
 ```bash
-node scripts/lint.mjs                                   # seat/skill consistency (install runs it too)
-node scripts/panel.mjs                                  # general seats, effective models
-node scripts/panel.mjs --prefix rev-sec-                # security seats
-node scripts/packet.mjs --focus "x" --out /tmp/packet.md --json   # smoke; read the stderr line
-node scripts/packet.mjs --focus "x" --budget 50000 --out /tmp/small.md  # budget drops
-node scripts/dedupe.mjs <results...> --panel /tmp/panel.json            # smoke with collected results
-./install.sh --dry-run                                  # confirm install surface
-git add -A && git commit && git push                    # ship tuning to other installs
+node scripts/lint.mjs                                   # seat/skill consistency (CI + install run it)
+node scripts/validate-marketplace.mjs                   # catalog/plugin integrity (CI runs it)
+Q=plugins/quorum-review/skills/quorum-review/scripts
+node $Q/panel.mjs --agents-dir plugins/quorum-review/agents             # general seats from the repo
+node $Q/panel.mjs --agents-dir plugins/quorum-review/agents --prefix rev-sec-
+node $Q/packet.mjs --focus "x" --out /tmp/packet.md --json              # smoke; read the stderr line
+node $Q/dedupe.mjs <results...> --panel /tmp/panel.json --out /tmp/r.md --json
+node $Q/minipacket.mjs --report /tmp/r.md.report.json --mode refute --out /tmp/refute.md
+./install.sh --dry-run                                  # manual-install surface
 ```
+
+Releasing: bump the version in `.omp-plugin/marketplace.json` (both places) and
+`plugins/quorum-review/package.json` together (the validator enforces equality), merge to
+`main`, then `omp plugin marketplace update quorum-review && omp plugin upgrade
+quorum-review@quorum-review` on each machine.
 
 Detection tuning (which seat/level catches defects) is measured against the seeded-defect
 benchmark in [`docs/benchmark.md`](docs/benchmark.md); thinking-level effort/coverage data
 lives in [`docs/thinking-levels.md`](docs/thinking-levels.md). Change a pinned level only with
-evidence from one of those. The 2026-09-02 review notes and the ranked list of what to fold in
-next (and what not to) are in [`docs/review-2026-09-02.md`](docs/review-2026-09-02.md).
+evidence from one of those. The 2026-09-02 review notes and the remaining fold-in list are in
+[`docs/review-2026-09-02.md`](docs/review-2026-09-02.md).

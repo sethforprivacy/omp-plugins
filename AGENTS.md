@@ -8,37 +8,42 @@ To the agent reading this: this repo is the distributable for OMP skills. It is 
 Two panel-review skills, one bundle:
 
 - **quorum-review** — general "last pass" gate. When the user says **"panel review" /
-  "quorum" / "review pass" / "last pass"**, run `skills/quorum-review/SKILL.md`: focus →
+  "quorum" / "review pass" / "last pass"**, run `plugins/quorum-review/skills/quorum-review/SKILL.md`: focus →
   panel snapshot → packet → spawn every ACTIVE `rev-quorum-*` seat in ONE parallel batch →
   save results verbatim → dedupe by consensus → present → fix corroborated findings. Goal: an
   honest final quality gate using models independent of the user's local work model.
 - **security-quorum** — focused security pass. When the user says **"security review" /
-  "security pass" / "sec review" / "threat check"**, run `skills/security-quorum/SKILL.md`:
+  "security pass" / "sec review" / "threat check"**, run `plugins/quorum-review/skills/security-quorum/SKILL.md`:
   the same protocol over the **`rev-sec-*`** panel, scoped to ONE small surface, with
   security-tuned detection criteria in the seat prompts. Separate results dir
   `~/.omp/security-quorum/`.
 
 ## Layout
 
-- `skills/<name>/SKILL.md` — one skill per dir. Frontmatter `panel_prefix:` names the seat
-  family that skill's panel reads (`rev-quorum-` / `rev-sec-`).
-- `skills/<name>/agents/rev-*.md` — seat agents; `model:` pins the default model,
-  `thinking-level:` the calibrated depth, `disable: true` parks a seat.
-- `scripts/` at repo root — the SHARED protocol scripts (`panel`, `packet`, `dedupe`, `lint`),
-  single source of truth; the installer copies them into every skill's installed `scripts/`.
-- `presets/` — OMP config overlays for swapping seat models on command; not installed.
-- `docs/` — `benchmark.md` (seeded-defect detection), `thinking-levels.md` (depth
-  calibration), `review-2026-09-02.md` (trace findings, what changed, ranked fold-ins).
+- `.omp-plugin/marketplace.json` — the OMP marketplace catalog; this repo is the marketplace and
+  `plugins/quorum-review/` the single plugin (`omp plugin install quorum-review@quorum-review`).
+- `plugins/quorum-review/skills/<name>/SKILL.md` — one skill per dir. Frontmatter
+  `panel_prefix:` names the seat family that skill's panel reads (`rev-quorum-` / `rev-sec-`).
+- `plugins/quorum-review/agents/rev-*.md` — ALL seat agents, both families, one dir; `model:`
+  pins the default model, `thinking-level:` the calibrated depth, `disable: true` parks a seat.
+- `plugins/quorum-review/skills/quorum-review/scripts/` — the SHARED protocol scripts (`panel`,
+  `packet`, `dedupe`, `minipacket`), single source of truth. security-quorum's SKILL.md points
+  here; both SKILL.md files resolve the dir at run start (plugin cache path first, manual path
+  second).
+- `plugins/quorum-review/presets/` — OMP config overlays (model swaps, runtime backstops); not
+  installed, passed to `omp --config` or copied into config.yml.
+- `scripts/` (repo root) — repo tooling only: `lint.mjs`, `validate-marketplace.mjs`.
+- `docs/` — `benchmark.md`, `thinking-levels.md`, `review-2026-09-02.md`. `bench/` — seeded patches.
+- `.github/workflows/ci.yml` — lint + validate + script smoke, SHA-pinned actions, read-only perms.
 
 ## Installation (target machine)
 
-```bash
-git clone <repo> omp-skills && cd omp-skills && ./install.sh
-```
-
-`install.sh` lints first, is idempotent, and backs up replaced files. It installs to
-`~/.omp/agent/skills/<skill>/` (SKILL.md + scripts/) and `~/.omp/agent/agents/rev-*.md`.
-Editing a seat file without re-running it leaves the old copy live.
+Plugin (preferred): `omp plugin marketplace add sethforprivacy/quorum-review && omp plugin install
+quorum-review@quorum-review`; upgrade with `omp plugin marketplace update quorum-review && omp
+plugin upgrade quorum-review@quorum-review`. Manual fallback: `./install.sh` (lints first, copies
+to `~/.omp/agent/{skills,agents}`, `--uninstall` removes the copies). **Never both**: manual copies
+shadow plugin files by name. Version bumps touch `.omp-plugin/marketplace.json` (twice) and
+`plugins/quorum-review/package.json`; the validator enforces equality.
 
 ## Key invariants — do not break
 
@@ -54,9 +59,10 @@ Editing a seat file without re-running it leaves the old copy live.
    of its review on the local model and breaks the independence the panel exists for.
    `lint.mjs` enforces it.
 4. **Deterministic logic lives in scripts** — orchestration lives in SKILL.md. Keep the CLI
-   stable: `packet.mjs` (`--focus --summary --files --limit --budget --all-files --out --json`),
-   `dedupe.mjs` (`--panel --expected --cwd --dir --out --json`), `panel.mjs`
-   (`--prefix --agents-dir --json --no-omp`), `lint.mjs` (`--quiet`).
+   stable: `packet.mjs` (`--focus --summary --files --limit --budget --context --all-files --out
+   --json`), `dedupe.mjs` (`--panel --expected --refuted --cwd --dir --out --json`), `panel.mjs`
+   (`--prefix --agents-dir --json --no-omp`), `minipacket.mjs` (`--report --mode --select
+   --security --cwd --context --out`), `lint.mjs` (`--quiet`).
 5. **Degraded panels are correct behavior, not errors.** Report which seats ran; `dedupe
    --panel` lists expected seats with no result and uses `n/<active>` denominators. Never hide
    a failed seat, never silently run a bigger/smaller panel than configured.
@@ -83,6 +89,11 @@ Editing a seat file without re-running it leaves the old copy live.
     fail-open, supply-chain, concurrency, fee-amount, other.
 13. **Ranking is priority first**, then corroboration. Consensus promotes a finding, never
     demotes a specific single-seat P0/P1 (the report calls those out).
+14. **Follow-up rounds are built by `minipacket.mjs`, anonymized, and bounded**: one refutation
+    pass at most (the refuter is never a panel vote; REFUTED findings stay visible in their own
+    section), one arbitration round at most. Never hand-write these packets.
+15. **Hunk context is auto-widened, never at the cost of a patch**: 12 lines when the packet fits
+    the budget, else 3. `--context <n>` pins it.
 
 ## OMP mechanics you must know
 
