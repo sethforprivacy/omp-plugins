@@ -28,8 +28,7 @@
         "multi-model",
         "quorum",
         "consensus",
-        "panel",
-        "nanogpt"
+        "panel"
       ]
     }
   ]

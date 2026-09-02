@@ -7,8 +7,8 @@
 // Catches the drift a multi-seat panel accumulates silently. Per skills/<skill>/:
 //   - SKILL.md has frontmatter `name:` (== dir name), `description:`, `panel_prefix:`
 //   - every agents/*.md matches the skill's panel_prefix (a seat never leaks into the other family)
-//   - seat frontmatter: block present; `name:` == filename stem; `description:` and `model:` present;
-//     `model:` is a provider/model selector (optional `:level`), an `@role` alias, or a list of those
+//   - seat frontmatter: block present; `name:` == filename stem; `description:` present; `model:` is
+//     EXACTLY "@<seat-name>" (a role alias) — concrete models/levels are client config, never repo
 //   - seats are READ-ONLY LEAVES: no edit/write tools, `yield` present, no `spawns:` entries
 //     (a seat that delegates to a local agent runs part of its review on the local model, which
 //     defeats the independence the panel exists for)
@@ -34,7 +34,6 @@ const fail = (msg) => { failed = true; console.error(`FAIL ${msg}`); };
 const ok = (msg) => { if (!quiet) console.log(`ok: ${msg}`); };
 
 const WRITE_TOOLS = new Set(["edit", "write", "patch", "apply_patch", "create", "multiedit", "notebook_edit"]);
-const SELECTOR_RE = /^(@[\w.-]+|[\w.-]+\/[\w.\/-]+(:[a-z]+)?)$/;
 
 function frontmatter(text) {
   const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
@@ -121,10 +120,13 @@ for (const skill of skillDirs) {
     if (top.name !== stem) fail(`${skill}/agents/${file}: name: is ${JSON.stringify(top.name)}, expected ${stem}`);
     if (!top.description) fail(`${skill}/agents/${file}: description: missing`);
 
+    // Shipped seats are neutral: the ONLY allowed pin is the alias named after the seat. Concrete
+    // provider/model choices are client config (task.agentModelOverrides / modelRoles), never repo.
     const models = top.model ? [top.model.replace(/^["']|["']$/g, "")] : listBlock(fm, "model") || [];
     if (models.length === 0) fail(`${skill}/agents/${file}: model: missing`);
-    for (const m of models) if (!SELECTOR_RE.test(m)) fail(`${skill}/agents/${file}: model ${JSON.stringify(m)} is not a provider/model[:level] selector or @role alias`);
-    if (models[0]?.startsWith("@") && !models.some((m) => !m.startsWith("@"))) fail(`${skill}/agents/${file}: alias-first model list needs a concrete provider/model fallback`);
+    else if (models.length !== 1 || models[0] !== `@${stem}`) fail(`${skill}/agents/${file}: model must be exactly "@${stem}" (got ${JSON.stringify(models)}) — concrete models are client config, not repo content`);
+    if ("thinking-level" in top) fail(`${skill}/agents/${file}: thinking-level: is client config — use a :level suffix on the model selector in OMP settings`);
+    if (/\b(nanogpt|openrouter|mixroute|vllm)\//.test(text)) fail(`${skill}/agents/${file}: mentions a specific provider route — keep seat files provider-neutral`);
 
     for (const [key, val] of Object.entries(top)) {
       if (!val) continue;

@@ -1,6 +1,6 @@
 ---
-name: rev-quorum-grok
-description: Quorum reviewer D — grok-4.6. Read-only code reviewer for quorum-review panel passes. Picked by the main agent only via the quorum-review skill protocol, never solo.
+name: rev-quorum-d
+description: "Quorum reviewer D (seat rev-quorum-d). Read-only code reviewer for quorum-review panel passes; its model is whatever your OMP config assigns to this seat (task.agentModelOverrides.rev-quorum-d or modelRoles.rev-quorum-d). Picked by the main agent only via the quorum-review skill protocol, never solo."
 tools: 
   - read
   - grep
@@ -10,8 +10,7 @@ tools:
   - web_search
   - ast_grep
   - yield
-model: nanogpt/x-ai/grok-4.6
-thinking-level: medium
+model: "@rev-quorum-d"
 temperature: 0.1
 output: 
   properties: 

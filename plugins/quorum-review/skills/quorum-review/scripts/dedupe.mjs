@@ -234,7 +234,7 @@ function sameFile(a, b) {
 }
 
 // A model selector matches when the two strings are equal after stripping a `:level` suffix,
-// or one is the other's suffix (`glm-5.3` vs `nanogpt/zai-org/glm-5.3`).
+// or one is the other's suffix (`model-x` vs `provider/vendor/model-x`).
 function modelMatches(resolved, expected) {
   const strip = (s) => String(s || "").trim().replace(/:[a-z]+$/i, "");
   const r = strip(resolved), e = strip(expected);

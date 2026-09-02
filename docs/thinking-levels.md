@@ -1,5 +1,13 @@
 # Thinking-level calibration (2026-08-18)
 
+> **Historical calibration record.** The seat names and model routes below (rev-quorum-gem/glm/
+> grok/nemo, rev-sec-kimi/glm/grok, OpenRouter/nanogpt) describe the author's panel at the
+> time. Since 2026-09-02 the repo ships neutral seats (`rev-quorum-a..d`, `rev-sec-a..c`) and
+> model assignments live in each user's OMP config. Use this document for its **method**
+> (seeded defects, pre-committed decision rules, per-level sweeps); the numbers apply to those
+> models on those routes only.
+
+
 Measured the right `thinking-level` for every active Quorum seat, standard and security, by
 running each model at every level it supports against ONE controlled target: the Flint
 BTCPay plugin PR16 diff (sweep-transaction labeler + deposits-behind-Advanced UI move,

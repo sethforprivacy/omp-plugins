@@ -1,6 +1,6 @@
 ---
-name: rev-sec-gem
-description: Security-quorum reviewer G — google/gemini-3.7-flash (nanogpt, fast seat). Read-only security code reviewer for security-quorum panel passes. Picked by the main agent only via the security-quorum skill protocol, never solo.
+name: rev-sec-a
+description: "Security-quorum reviewer A (seat rev-sec-a). Read-only security code reviewer for security-quorum panel passes; its model is whatever your OMP config assigns to this seat (task.agentModelOverrides.rev-sec-a or modelRoles.rev-sec-a). Picked by the main agent only via the security-quorum skill protocol, never solo."
 tools: 
   - read
   - grep
@@ -10,9 +10,7 @@ tools:
   - web_search
   - ast_grep
   - yield
-model: nanogpt/google/gemini-3.7-flash
-disable: true
-thinking-level: high
+model: "@rev-sec-a"
 temperature: 0.1
 output: 
   properties: 
