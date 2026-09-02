@@ -9,10 +9,11 @@
 //     lenient, strict YAML parsers are not — a quoted description keeps both happy)
 //   - read-only roles (pf-scout, pf-verifier) do not list edit/write tools
 //   - body mentions the yield envelope so workers return an object, not a string
+//   - no provider route (vllm/, openrouter/, ...) anywhere in an agent file
 // Presets (plugins/pilotfish/presets/*.yml):
-//   - modelRoles.pf-worker and modelRoles.pf-strong present and look like `provider/model` selectors
+//   - modelRoles.pf-worker and modelRoles.pf-strong present; values are `provider/model[:level]`
+//     selectors or `<placeholder>` tokens (presets ship as templates, never as someone's config)
 //   - every key under task.agentModelOverrides (if present) names a shipped pf-* agent
-//   - every value looks like a `provider/model` selector (optionally `:thinking`)
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -30,6 +31,7 @@ function frontmatter(text) {
   return m ? { fm: m[1], body: m[2] } : null;
 }
 
+const SEL_OR_PLACEHOLDER = /^(<[^>]+>(\/<[^>]+>)?(:<?[a-z]+>?)?|[\w.-]+\/[\w.\/-]+(:[a-z]+)?)$/;
 const agentNames = new Set();
 for (const file of readdirSync(agentsDir).filter((f) => /^pf-.*\.md$/.test(f)).sort()) {
   const path = join(agentsDir, file);
@@ -50,10 +52,13 @@ for (const file of readdirSync(agentsDir).filter((f) => /^pf-.*\.md$/.test(f)).s
   if (!top.description) fail(`${file}: description: missing`);
   if (!("model" in top)) fail(`${file}: model: missing`);
   const modelList = fm.match(/^model:\n((?:\s+-\s+.*\n?)+)/m);
-  const models = modelList ? modelList[1].split("\n").map((l) => l.replace(/^\s*-\s*/, "").replace(/\s+#.*$/, "").replace(/^"|"$/g, "").trim()).filter(Boolean) : (top.model ? [top.model] : []);
+  const models = modelList ? modelList[1].split("\n").map((l) => l.replace(/^\s*-\s*/, "").replace(/\s+#.*$/, "").replace(/^"|"$/g, "").trim()).filter(Boolean) : (top.model ? [top.model.replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim()] : []);
+  // Shipped agents are neutral: the ONLY allowed pin is the tier alias. Concrete models, providers
+  // and thinking levels are client config (modelRoles / task.agentModelOverrides), never repo.
   const wantAlias = expected === "pf-verifier" ? "@pf-strong" : "@pf-worker";
-  if (models[0] !== wantAlias) fail(`${file}: model list must start with ${wantAlias} (got ${JSON.stringify(models[0])})`);
-  if (models.length < 2 || !/^[\w.-]+\/[\w.\/-]+(:[a-z]+)?$/.test(models[1])) fail(`${file}: model list needs a concrete provider/model fallback after the alias`);
+  if (models.length !== 1 || models[0] !== wantAlias) fail(`${file}: model must be exactly "${wantAlias}" (got ${JSON.stringify(models)}) — concrete models are client config`);
+  if ("thinking-level" in top) fail(`${file}: thinking-level: is client config — use a :level suffix on the modelRoles selector`);
+  if (/\b(vllm|openrouter|nanogpt|mixroute|prem)\//.test(text)) fail(`${file}: mentions a specific provider route — keep agent files provider-neutral`);
 
   for (const [key, val] of Object.entries(top)) {
     if (!val) continue; // nested block follows
@@ -83,7 +88,8 @@ if (existsSync(presetsDir)) {
       for (const r of ["pf-worker", "pf-strong"]) {
         const m = roles[1].match(new RegExp(`^\\s+${r}:\\s*(\\S+)`, "m"));
         if (!m) fail(`presets/${file}: modelRoles.${r} missing`);
-        else if (!/^[\w.-]+\/[\w.\/-]+(:[a-z]+)?$/.test(m[1])) fail(`presets/${file}: modelRoles.${r}: ${m[1]} is not a provider/model selector`);
+        else if (!SEL_OR_PLACEHOLDER.test(m[1])) fail(`presets/${file}: modelRoles.${r}: ${m[1]} is not a provider/model selector or <placeholder>`);
+        else if (/^[\w.-]+\/[\w.\/-]+(:[a-z]+)?$/.test(m[1])) fail(`presets/${file}: modelRoles.${r} pins a concrete model (${m[1]}) — presets are templates; use <provider>/<model> placeholders`);
       }
     }
     const block = text.match(/^task:\n\s+agentModelOverrides:\n((?:\s+[\w-]+:\s*\S+.*\n?)+)/m);
@@ -94,7 +100,7 @@ if (existsSync(presetsDir)) {
       if (!m) { fail(`presets/${file}: unparseable line ${JSON.stringify(e)}`); continue; }
       const [, agent, model] = m;
       if (!agentNames.has(agent)) fail(`presets/${file}: ${agent} is not a shipped agent (${[...agentNames].join(", ")})`);
-      if (!/^[\w.-]+\/[\w.\/-]+(:[a-z]+)?$/.test(model)) fail(`presets/${file}: ${agent}: ${model} is not a provider/model selector`);
+      if (!SEL_OR_PLACEHOLDER.test(model)) fail(`presets/${file}: ${agent}: ${model} is not a provider/model selector or <placeholder>`);
     }
     ok(`presets/${file}: modelRoles + ${entries.length} per-agent overrides`);
   }

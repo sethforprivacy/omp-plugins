@@ -106,6 +106,15 @@ Hard rules — each has been violated in a real run:
   body, 402, 429, timeout, runtime exit) earns exactly ONE solo re-spawn outside the batch; a
   second failure is a failed seat. Structure problems are never retried.
 
+### 4b. Wait — bounded, never open-ended
+Wait for the batch with a deadline, not forever: `hub wait` on the seat ids with `timeoutMs`
+set to about 30 minutes (deep seats legitimately take that long; a seat that has not yielded
+by then is not going to). When the deadline passes, proceed to step 5 with whatever delivered —
+`collect.mjs` records the stragglers as `no-yield` failed seats. Do not extend the wait "one
+more time", and do not let a single straggler consume the session's runtime budget: a real run
+was lost this way (three seats delivered in 12 minutes, the fourth never yielded, and the session
+hit its time cap before collect/dedupe ran).
+
 ### 5. Collect — from OMP's own transcripts, never from memory
 ```
 node $Q/collect.mjs --prefix rev-sec- --out ~/.omp/security-quorum/<run-ts>/

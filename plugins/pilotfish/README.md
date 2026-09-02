@@ -16,8 +16,8 @@ to two tiers and wired through OMP's own agent files and `task` protocol.
 Most tokens in any coding session go to search, repetitive edits, test suites, and docs — not to
 judgment. This skill prices that reality in:
 
-- **Volume work runs on hardware you already own.** A local vLLM router on a reasonable GPU
-  (or even a shared one) serves DeepSeek V4 Flash-class work at near-zero marginal cost per token.
+- **Volume work runs on hardware you already own.** A local OpenAI-compatible router on a
+  reasonable GPU (or even a shared one) serves flash-class work at near-zero marginal cost per token.
   The long-tail of a session — recon, mechanical edits, broad research — never touches a paid API.
 - **Premium tokens are spent only where they change the outcome:** planning/architecture,
   integration judgment, and one fresh-context **final review** by a model that did *not* do the
@@ -42,24 +42,24 @@ gets frontier-quality *decisions* at local *throughput* — the best cost/effica
 
 Roles are resolved **by agent name** (config overrides, then agent `model:` frontmatter), not in
 skill logic — so the skill itself is router/model agnostic. Any OpenAI-compatible provider works (local vLLM, Ollama, OpenRouter,
-PREM, Venice, …).
+and any other OpenAI-compatible gateway).
 
-## Recommended pairing (OpenRouter)
+## Pick your two tiers (required)
 
-What we run. Kimi K3 (or GLM 5.3) orchestrates and reviews; DeepSeek V4 Flash does the volume
-work — both premium seats through **OpenRouter** (OMP's built-in provider), the worker on our
-local **vLLM** router:
+The plugin ships **no models**. Each agent pins only a role alias — workers `"@pf-worker"`, the
+verifier `"@pf-strong"` — and your OMP config says what those resolve to:
 
-| Role | Recommended model |
-|---|---|
-| Orchestrator (main session) | `openrouter/moonshotai/kimi-k3` — or `openrouter/z-ai/glm-5.3` (GLM 5.3) |
-| Verifier (`pf-verifier`) | `openrouter/moonshotai/kimi-k3` — or `openrouter/z-ai/glm-5.3` (GLM 5.3) |
-| Workers (`pf-scout`, `pf-mech-executor`, `pf-executor`) | `vllm/deepseek-v4-flash-0731` (local router) |
+```yaml
+modelRoles:
+  pf-worker: <provider>/<cheap-fast-model>     # pf-scout, pf-mech-executor, pf-executor
+  pf-strong: <provider>/<strong-model>:high    # pf-verifier
+```
 
-Naming: `openrouter/` = the **OpenRouter** provider, `vllm/` = the local **vLLM** router
-(provider prefix `vllm` is what `models.yml` declares — see below). The shipped agent files
-default to `prem/kimi-k3`, the PREM-router route they were validated against; switch them to
-OpenRouter per [Customizing the model tiers](#customizing-the-model-tiers).
+Guidance, not a recommendation of any vendor: put the worker tier on the cheapest model that
+reliably follows a fully-specified brief (a local flash-class model is the sweet spot), the strong
+tier on the best model you can afford for judgment, and launch the orchestrator with `--model`
+set to that same strong tier or better. Until both roles are set, OMP resolves the agents onto
+your session model — the tiering silently disappears — so set them before the first run.
 
 ## Install (plugin, recommended)
 
@@ -114,49 +114,30 @@ agent's model in this order (first match wins):
 
 1. `task.agentModelOverrides.<agent>` in config — `~/.omp/agent/config.yml` (global), a project
    `<repo>/.omp/config.yml`, or a one-shot `omp --config <overlay>.yml`
-2. the agent file's `model:` list — shipped as a **role alias first, concrete default second**:
-   workers `["@pf-worker", "vllm/deepseek-v4-flash-0731"]`, verifier `["@pf-strong", "prem/kimi-k3"]`.
-   Set `modelRoles.pf-worker` / `modelRoles.pf-strong` and a whole tier follows; leave them unset
-   and the concrete default applies (verified: an undefined alias falls through to the next entry)
-3. the session model
+2. the agent file's `model:` — shipped as the role alias only (`"@pf-worker"` / `"@pf-strong"`),
+   which resolves through `modelRoles.pf-worker` / `modelRoles.pf-strong`
+3. the session model (a silent loss of the tiering — always define the roles)
 
-The orchestrator is always the `--model` you launch OMP with. Routing is fixed at launch (the `task`
-tool has no per-call model parameter), so a swap is a relaunch, not a mid-session request.
+The orchestrator is always the `--model` you launch OMP with. Routing is fixed at launch (the
+`task` tool has no per-call model parameter), so a swap is a relaunch, not a mid-session request.
+Thinking level rides on the selector (`provider/model:high`); the agent files pin none.
 
-### Presets (one run)
+### Template (one run or persistent)
 
-Two ready-made overlays ship in `plugins/pilotfish/presets/`:
+`presets/tiers-template.yml` is the block above with placeholders:
 
 ```bash
-# everything on your local router: flash-class workers, strong local verifier
-omp --config <plugin-dir>/presets/all-local.yml --model vllm/GLM-5.3-Flash-Ring
-
-# premium seats on OpenRouter, workers on OpenRouter's DeepSeek V4 Flash
-omp --config <plugin-dir>/presets/openrouter.yml --model openrouter/moonshotai/kimi-k3
+omp --config <plugin-dir>/presets/tiers-template.yml --model <strong-model>   # after filling it in
 ```
 
 `<plugin-dir>` is `~/.omp/plugins/cache/plugins/omp-plugins___pilotfish___<version>` for a plugin
-install, or wherever you cloned this repo. Copy a preset and change one line to try a new worker
-model on the next run — e.g. `pf-executor: vllm/qwen3.8-flash-next`.
-
-### Persistent
-
-Paste the same block into `~/.omp/agent/config.yml` (or `<repo>/.omp/config.yml` to make one
-repository use different tiers):
-
-```yaml
-modelRoles:
-  pf-worker: vllm/deepseek-v4-flash-0731     # all three workers
-  pf-strong: vllm/GLM-5.3-Flash-Ring         # verifier
-task:
-  agentModelOverrides:
-    pf-scout: vllm/qwen3.8-flash-next        # optional: pin one seat differently
-```
-
-Try a new worker model for one run without touching anything else:
+install, or wherever you cloned this repo. For a persistent setup paste the same block into
+`~/.omp/agent/config.yml` (or `<repo>/.omp/config.yml` to make one repository use different tiers).
+Pin one agent off its tier with `task.agentModelOverrides.<agent>: <provider>/<model>`. Try a new
+worker model for one run without touching anything else:
 
 ```bash
-omp --config <(printf 'modelRoles:\n  pf-worker: vllm/qwen3.8-flash-next\n') --model vllm/GLM-5.3-Flash-Ring
+omp --config <(printf 'modelRoles:\n  pf-worker: <provider>/<model>\n') --model <strong-model>
 ```
 
 ### Shipped defaults
@@ -164,8 +145,8 @@ omp --config <(printf 'modelRoles:\n  pf-worker: vllm/qwen3.8-flash-next\n') --m
 | Role | Agent | Shipped `model:` |
 |---|---|---|
 | Orchestrator | your `omp --model …` | (you choose; strong tier) |
-| Recon / Mechanical / Judgment | `pf-scout`, `pf-mech-executor`, `pf-executor` | `@pf-worker`, then `vllm/deepseek-v4-flash-0731` |
-| Verifier | `pf-verifier` | `@pf-strong`, then `prem/kimi-k3` |
+| Recon / Mechanical / Judgment | `pf-scout`, `pf-mech-executor`, `pf-executor` | `"@pf-worker"` (→ `modelRoles.pf-worker`) |
+| Verifier | `pf-verifier` | `"@pf-strong"` (→ `modelRoles.pf-strong`) |
 
 Editing the four `agents/pf-*.md` files still works for a fork, but overrides are the supported
 path — drifted installed copies are how a quick swap becomes an unreproducible setup.
@@ -207,10 +188,10 @@ that account).
 Start OMP on the premium tier, invoke the skill:
 
 ```bash
-omp --model openrouter/moonshotai/kimi-k3
+omp --model <strong-model>
 # in the session:
 #   "pilotfish: <task>"
-#   or "orchestrate this with the local router doing the work and kimi reviewing"
+#   or "orchestrate this with the worker tier doing the work and the strong tier reviewing"
 ```
 
 The orchestrator runs the six-gate protocol (frame + roster → capped recon fan-out → plan/approval →
@@ -231,7 +212,7 @@ This repo is both the marketplace catalog (`./.omp-plugin/marketplace.json`) and
 (`./plugins/pilotfish/`). CI keeps it publishable:
 
 - **Every push/PR** — `ci.yml` validates the catalog + plugin integrity, lints agent frontmatter
-  and presets (`scripts/lint-agents.mjs`), smoke-tests the packet script, and proves an untracked
+  and presets (`scripts/lint-pilotfish.mjs`), smoke-tests the packet script, and proves an untracked
   `.env` never reaches a packet.
 - **Every `v*` tag** — `publish.yml` validates, archives `plugins/pilotfish/` as
   `pilotfish-<version>.zip`, and attaches it to a GitHub release (release notes auto-generated).

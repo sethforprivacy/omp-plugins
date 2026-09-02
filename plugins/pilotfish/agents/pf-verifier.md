@@ -8,10 +8,7 @@ tools:
   - bash
   - lsp
   - yield
-model:
-  - "@pf-strong"          # modelRoles.pf-strong in config, when defined
-  - prem/kimi-k3
-thinking-level: high
+model: "@pf-strong"
 temperature: 0
 output:
   properties:

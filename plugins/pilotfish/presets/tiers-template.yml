@@ -1,0 +1,17 @@
+# pilotfish preset TEMPLATE — assign the two model tiers. The shipped agents pin only a role
+# alias (workers: "@pf-worker", verifier: "@pf-strong"); these two modelRoles keys are what the
+# aliases resolve to. Fill in, then either
+#   omp --config <this file> --model <your orchestrator model>   (one session)
+#   <repo>/.omp/config.yml                                        (one repo)
+#   ~/.omp/agent/config.yml or the /agents hub                    (everywhere)
+#
+# Values are OMP model selectors: provider/model, optionally :thinking-level. Any OpenAI-compatible
+# gateway or local router works once declared in ~/.omp/agent/models.yml (keys via env-var names in
+# ~/.omp/agent/.env). task.agentModelOverrides.<agent> pins one agent differently and wins over the
+# role. The orchestrator itself is your session --model, not configured here.
+modelRoles:
+  pf-worker: <provider>/<cheap-fast-model>       # pf-scout, pf-mech-executor, pf-executor
+  pf-strong: <provider>/<strong-model>:high      # pf-verifier — fresh-context verification wants depth
+# task:
+#   agentModelOverrides:
+#     pf-executor: <provider>/<model>            # optional: one agent off the tier

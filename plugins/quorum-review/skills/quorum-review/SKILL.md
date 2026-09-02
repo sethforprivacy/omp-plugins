@@ -105,6 +105,15 @@ Hard rules — each of these has been violated in a real run:
   outside the batch. A second failure is a failed seat. Structure problems (verdict-only,
   schema violation, prose instead of yields) are never retried.
 
+### 4b. Wait — bounded, never open-ended
+Wait for the batch with a deadline, not forever: `hub wait` on the seat ids with `timeoutMs`
+set to about 15 minutes (deep seats legitimately take that long; a seat that has not yielded
+by then is not going to). When the deadline passes, proceed to step 5 with whatever delivered —
+`collect.mjs` records the stragglers as `no-yield` failed seats. Do not extend the wait "one
+more time", and do not let a single straggler consume the session's runtime budget: a real run
+was lost this way (three seats delivered in 12 minutes, the fourth never yielded, and the session
+hit its time cap before collect/dedupe ran).
+
 ### 5. Collect — from OMP's own transcripts, never from memory
 OMP writes one transcript per spawned seat under `~/.omp/agent/sessions/<cwd>/<session>/`. It
 records the agent, the model the seat ACTUALLY ran on, whether that was a fallback, the thinking

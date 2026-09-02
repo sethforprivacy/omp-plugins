@@ -1,10 +1,14 @@
 # Sample run — pilotfish end-to-end
 
+> Sample run from the author's setup at the time; model names are illustrative. Your tiers come
+> from `modelRoles.pf-worker` / `modelRoles.pf-strong` in your own OMP config.
+
+
 A real validation run of the skill, captured 2026-08-20 on OMP with the two-tier
 split this skill exists for:
 
-- **Orchestrator / final review:** `prem/kimi-k3`
-- **Worker pool:** `vllm/deepseek-v4-flash-0731` (local router)
+- **Orchestrator / final review:** `<strong-tier model>`
+- **Worker pool:** `<worker-tier model>` (local router)
 
 Scratch repo: a single `src/greeter.py` with an unconditional `greet()` f-string
 and `main()` printing `greet("world")`.
@@ -18,7 +22,7 @@ and `main()` printing `greet("world")`.
 > CONFIRMED/REFUTED/INCONCLUSIVE verdict. Then give your orchestrator final
 > review of the whole two-tier run (what each tier did, verdict, disposition).
 
-Command: `omp -p --model prem/kimi-k3 "…prompt…"` from the repo root.
+Command: `omp -p --model <strong-tier model> "…prompt…"` from the repo root.
 
 ## Output
 

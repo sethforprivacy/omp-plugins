@@ -22,11 +22,12 @@ with the plugin, and OMP resolves each agent's model in this order (first match 
 
 1. `task.agentModelOverrides.<agent-name>` in config (`~/.omp/agent/config.yml`, a project
    `<repo>/.omp/config.yml`, or a one-shot `omp --config <overlay>.yml`)
-2. the agent file's own `model:` list — shipped as a role alias first, then a concrete default:
-   workers `["@pf-worker", <flash model>]`, verifier `["@pf-strong", <strong model>]`. Define
-   `modelRoles.pf-worker` / `modelRoles.pf-strong` in config and every seat of that tier follows;
-   leave them undefined and the concrete default applies.
-3. the session model
+2. the agent file's own `model:` — shipped as the role alias only: workers `"@pf-worker"`,
+   verifier `"@pf-strong"`, resolved through `modelRoles.pf-worker` / `modelRoles.pf-strong` in
+   config. No concrete model or thinking level ships in the plugin.
+3. the session model — a silent loss of the tiering. If `modelRoles.pf-worker` or
+   `modelRoles.pf-strong` is undefined, tell the user which key to set (see `presets/
+   tiers-template.yml`) before delegating anything.
 
 | Role | Agent | Tier | Job |
 |------|-------|------|-----|
@@ -36,10 +37,9 @@ with the plugin, and OMP resolves each agent's model in this order (first match 
 | Judgment executor | `pf-executor` | worker | bounded implementation with local judgment |
 | Verifier | `pf-verifier` | strong | fresh-context outcome verification → CONFIRMED / REFUTED / INCONCLUSIVE |
 
-Swapping models is a config change, not a file edit: `presets/all-local.yml` and
-`presets/openrouter.yml` next to this plugin are ready-made overlays (`omp --config <preset>
---model <orchestrator>`) — two `modelRoles` keys move a whole tier, per-agent
-`task.agentModelOverrides` pin one seat. Model routing is fixed at launch — the `task`
+Swapping models is a config change, not a file edit: `presets/tiers-template.yml` next to this
+plugin is the overlay template (`omp --config <filled-in copy> --model <orchestrator>`) — two
+`modelRoles` keys move a whole tier, per-agent `task.agentModelOverrides` pin one seat. Model routing is fixed at launch — the `task`
 tool has no per-call model parameter. If the user asks for a different worker model mid-session,
 do not improvise: give them the one-line override (`modelRoles.pf-worker: <model>` for the tier, or
 `task.agentModelOverrides.pf-executor: <model>` for one seat) and continue with the current routing, or stop so they can relaunch.
@@ -200,9 +200,9 @@ stating what changed, what you ignored and why, and the current verdict.
   `--no-untracked`, `--limit <bytes>` (diff), `--embed-limit <bytes>` (per embedded file),
   `--out <file|dir>`, `--json`. Auto-detects git (`git status --porcelain` + `git diff HEAD`) and jj
   (`jj status` + `jj diff --git`). Stamps root, revision, branch, and a sha256 fingerprint.
-- `presets/*.yml`: `modelRoles.pf-worker` / `modelRoles.pf-strong` (whole tier) plus optional
-  `task.agentModelOverrides` (single seat) overlays for the shipped agents. Changing tier models =
-  `omp --config <preset>` for one run, or the same block in `~/.omp/agent/config.yml` or
-  `<repo>/.omp/config.yml` permanently, plus the `--model` you launch OMP with. Register new
-  provider endpoints in `~/.omp/agent/models.yml` (OpenRouter is built in — just set
-  `OPENROUTER_API_KEY`). `omp models` lists what each provider can serve.
+- `presets/tiers-template.yml`: `modelRoles.pf-worker` / `modelRoles.pf-strong` (whole tier) plus
+  optional `task.agentModelOverrides` (single seat), with placeholders. Changing tier models =
+  `omp --config <filled-in copy>` for one run, or the same block in `~/.omp/agent/config.yml` or
+  `<repo>/.omp/config.yml` permanently, plus the `--model` you launch OMP with. Register provider
+  endpoints in `~/.omp/agent/models.yml` (keys by env-var name, values in `~/.omp/agent/.env`).
+  `omp models` lists what each provider can serve.

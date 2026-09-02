@@ -7,9 +7,7 @@ tools:
   - glob
   - bash
   - lsp
-model:
-  - "@pf-worker"          # modelRoles.pf-worker in config, when defined
-  - vllm/deepseek-v4-flash-0731
+model: "@pf-worker"
 temperature: 0
 output:
   properties:
