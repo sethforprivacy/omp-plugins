@@ -43,10 +43,13 @@ tighten the focus before loosening a seat.
 
 - User asks for a "security review" / "security pass" / "sec review" / "threat check", or
   "is X safe?" about a concrete change.
-- De-duplicate before spawning: if an equivalent security review already exists — running
-  elsewhere (another session/agent, CI) or the user says "those reviews already run there" —
-  do NOT spawn seats and do NOT build the packet; name the running review and skip. The gate
-  costs one exchange; a cancelled spawn wastes the packet, the brief, and the seat batch.
+- De-duplicate before spawning: if there is any chance an equivalent panel or human security
+  review of this SAME surface already runs elsewhere (another session or agent, a reviewer on
+  the same diff), say so and confirm once before building the packet. If it does — or the user
+  says "those reviews already run there" — do NOT spawn seats and do NOT build the packet; name
+  the running review and skip. A generic CI scanner (SAST, dependency audit) is not an
+  equivalent review. The gate costs one exchange; a cancelled spawn wastes the packet, the
+  brief, and the seat batch.
 - Scope: ONE surface — a file, function, dependency, handler, config path, or small diff. If
   the user names a whole feature or repo, narrow to the risky slice (new entry points, new
   data flows, auth/token/crypto/parsing code) before running. Whole-repo sweeps are
