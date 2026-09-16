@@ -9,6 +9,13 @@
 # gateway or local router works once declared in ~/.omp/agent/models.yml (keys via env-var names in
 # ~/.omp/agent/.env). task.agentModelOverrides.<agent> pins one agent differently and wins over the
 # role. The orchestrator itself is your session --model, not configured here.
+#
+# Setting these keys is not the same as getting them — model resolution falls back to the session
+# model in silence. After launching, the skill's step-0 preflight proves both tiers with one trivial
+# probe each:
+#   node <plugin-dir>/skills/pilotfish/scripts/tiers.mjs --probe TierProbeWorker --probe TierProbeStrong
+# If a probe reads `collapsed`, pin the seats with task.agentModelOverrides (below) instead — that
+# path is honored even where the role alias is not.
 modelRoles:
   pf-worker: <provider>/<cheap-fast-model>       # pf-scout, pf-mech-executor, pf-executor
   pf-strong: <provider>/<strong-model>:high      # pf-verifier — fresh-context verification wants depth

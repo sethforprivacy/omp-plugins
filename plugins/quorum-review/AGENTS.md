@@ -154,5 +154,12 @@ method, not the numbers.
 - `dedupe --dir` scans every `.json` (its own `*.report.json` and non-result files excluded
   with a warning) — pass explicit result files for a clean run. Keep the two results dirs
   separate.
+- **The alias path can be dropped by the harness, silently.** A seat whose model comes from
+  `modelRoles.<seat>` depends on OMP honoring the seat file's `model: "@<seat>"` pin — which OMP
+  ≤ 18.2.0 did NOT for agents shipped by marketplace-installed plugins (can1357/oh-my-pi#12028).
+  Every seat then runs the session model: one model voting N times, with the panel's independence
+  gone and nothing in the task results saying so. Prefer `task.agentModelOverrides.<seat>` (immune
+  to that path); `panel.mjs` now notes when seats rely on the alias, and invariant 7's transcript
+  check stays the detector of record. Fixed in OMP 18.2.1.
 - Seat files in the repo and the installed copies drift if `install.sh` is not re-run
   (observed: descriptions differed). Reinstall after every seat/prompt change.

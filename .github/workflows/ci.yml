@@ -63,3 +63,34 @@ jobs:
             --focus "ci smoke" --claim "runs" --limit 2000 --files plugins/pilotfish/skills/pilotfish/SKILL.md \
             --out /tmp/pf-smoke.md
           test -s /tmp/pf-smoke.md && grep -q "ci smoke" /tmp/pf-smoke.md
+      - name: pilotfish tier-check smoke
+        run: |
+          S=plugins/pilotfish/skills/pilotfish/scripts
+          # Synthetic subagent transcripts (the shapes OMP writes) under a fake session dir + parent.
+          rm -rf /tmp/tierfx && mkdir -p /tmp/tierfx/sess
+          node -e '
+            const { writeFileSync } = require("node:fs");
+            const dir = "/tmp/tierfx/sess";
+            const leaf = (name, agent, model, fallback) => writeFileSync(`${dir}/${name}.jsonl`, [
+              JSON.stringify({ type: "session", version: 3, id: name, timestamp: "2026-09-16T10:00:00.000Z", cwd: "/repo" }),
+              JSON.stringify({ type: "model_change", id: "m", parentId: null, timestamp: "2026-09-16T10:00:00.100Z", model, resolvedModelIsFallback: fallback }),
+              JSON.stringify({ type: "session_init", id: "i", parentId: "m", timestamp: "2026-09-16T10:00:00.200Z", task: "x", agent, resolvedModel: model, tools: ["read"] }),
+            ].join("\n") + "\n");
+            writeFileSync("/tmp/tierfx/sess.jsonl", [
+              JSON.stringify({ type: "session", version: 3, id: "p", timestamp: "2026-09-16T09:59:00.000Z", cwd: "/repo" }),
+              JSON.stringify({ type: "model_change", id: "m", parentId: null, timestamp: "2026-09-16T09:59:00.100Z", model: "someprovider/orchestrator", resolvedModelIsFallback: false }),
+            ].join("\n") + "\n");
+            leaf("TierProbeWorker", "pf-scout", "someprovider/worker:medium", false);
+            leaf("TierProbeStrong", "pf-verifier", "someprovider/strong:max", false);
+            leaf("CollapsedLeaf", "pf-executor", "someprovider/orchestrator:max", false);
+          '
+          E=(--session-dir /tmp/tierfx/sess --expected pf-scout=someprovider/worker --expected pf-verifier=someprovider/strong --expected pf-executor=someprovider/worker)
+          # The gate passes only when both probes are on tier…
+          node $S/tiers.mjs "${E[@]}" --probe TierProbeWorker --probe TierProbeStrong
+          # …a probe with no transcript fails rather than passing by omission…
+          if node $S/tiers.mjs "${E[@]}" --probe TierProbeWorker --probe NoSuchProbe 2>/tmp/tiers.err; then echo "missing probe must fail"; exit 1; fi
+          grep -q "NO TRANSCRIPT" /tmp/tiers.err
+          # …and a leaf that ran on the orchestrator's model is reported as collapsed.
+          if node $S/tiers.mjs "${E[@]}" --probe CollapsedLeaf 2>/tmp/tiers.err; then echo "collapsed leaf must fail"; exit 1; fi
+          grep -q "COLLAPSED" /tmp/tiers.err
+          node $S/tiers.mjs "${E[@]}" --probe TierProbeStrong --json | grep -q '"verdict": "ok"'

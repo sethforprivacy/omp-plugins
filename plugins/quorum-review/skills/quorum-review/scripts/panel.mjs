@@ -175,6 +175,16 @@ if (args.json) {
 }
 for (const s of skipped) console.error(`panel: ${s.name} — inactive (${s.why})`);
 for (const n of notes) console.error(`panel: note — ${n}`);
+const aliasSeats = seats.filter((s) => s.source.startsWith("modelRoles."));
+if (aliasSeats.length > 0) {
+  console.error(
+    `panel: note — ${aliasSeats.length} seat(s) resolve through modelRoles (${aliasSeats.map((s) => s.name).join(", ")}). ` +
+    `That path depends on OMP honoring the seat file's model: alias, which OMP ≤ 18.2.0 did NOT for agents shipped by ` +
+    `marketplace-installed plugins (can1357/oh-my-pi#12028) — every seat then runs the session model and the panel is one ` +
+    `model voting N times. Pin seats with task.agentModelOverrides to be immune, or run OMP ≥ 18.2.1. The transcripts ` +
+    `remain the check either way: collect.mjs flags a session-model fallback.`,
+  );
+}
 console.error(
   `panel: ${seats.length} active seat(s). Models come from persisted OMP settings; a --config overlay or a session-only /agents switch is not visible here — confirm the resolved model on every delivered result.`
 );

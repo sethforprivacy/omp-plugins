@@ -98,6 +98,11 @@ ls ~/.omp/agent/agents/pf-*.md ~/.omp/agent/skills/pilotfish 2>/dev/null && echo
 Model routing survives upgrades because it lives in `~/.omp/agent/config.yml`, not in the plugin
 (see [Customizing the model tiers](#customizing-the-model-tiers)).
 
+OMP itself matters too: **18.2.1 or newer** honors the `model:` pin of agents shipped by
+marketplace-installed plugins. On older versions every `pf-*` leaf silently inherits the
+orchestrator's model — check yours with `omp --version`, and check what actually ran with
+`tiers.mjs` ([Tier integrity](#tier-integrity--verify-what-actually-ran)).
+
 ## Install (manual copy)
 
 ```bash
@@ -138,6 +143,40 @@ worker model for one run without touching anything else:
 
 ```bash
 omp --config <(printf 'modelRoles:\n  pf-worker: <provider>/<model>\n') --model <strong-model>
+```
+
+### Tier integrity — verify what actually ran
+
+Configuring the tiers is not the same as getting them, because model resolution fails **silently**:
+`task.agentModelOverrides.<agent>` → the agent file's `model:` alias → the session model, with no
+error at any step. The failure that prompted this section: OMP ≤ 18.2.0 ignored the `model:`
+frontmatter of agents shipped by **marketplace-installed plugins** ([can1357/oh-my-pi#12028](https://github.com/can1357/oh-my-pi/issues/12028)),
+so every `pf-*` leaf inherited the ORCHESTRATOR's model — the worker tier spent strong-model tokens
+for days and no task result, badge or log line said so. Undefined roles, disabled providers and
+missing credentials fall through the same way.
+
+The skill therefore proves the tiers before delegating: one trivial probe per tier
+(`TierProbeWorker`, `TierProbeStrong`, dispatched with the real role agents), then
+
+```bash
+node <plugin-dir>/skills/pilotfish/scripts/tiers.mjs --probe TierProbeWorker --probe TierProbeStrong
+```
+
+which reads each probe's subagent transcript — the only place OMP records the model that actually
+served the turn — and prints `ok` / `collapsed` / `mismatch` / `unconfigured`. Green means the
+tiering is real; anything else is a stop. The same command over a whole run (no `--probe`) audits
+every leaf before the final review, so a leaf that ran off-tier is named instead of quietly counted.
+
+If a probe comes back `collapsed`: upgrade OMP (`omp plugin list`, then your package manager) or pin
+the seats explicitly in `~/.omp/agent/config.yml` — the override path is not the one that breaks:
+
+```yaml
+task:
+  agentModelOverrides:
+    pf-scout: <provider>/<worker-model>
+    pf-executor: <provider>/<worker-model>
+    pf-mech-executor: <provider>/<worker-model>
+    pf-verifier: <provider>/<strong-model>
 ```
 
 ### Shipped defaults

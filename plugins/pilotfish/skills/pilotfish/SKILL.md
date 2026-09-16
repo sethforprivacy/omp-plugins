@@ -27,7 +27,10 @@ with the plugin, and OMP resolves each agent's model in this order (first match 
    config. No concrete model or thinking level ships in the plugin.
 3. the session model — a silent loss of the tiering. If `modelRoles.pf-worker` or
    `modelRoles.pf-strong` is undefined, tell the user which key to set (see `presets/
-   tiers-template.yml`) before delegating anything.
+   tiers-template.yml`) before delegating anything. An undefined role is not the only way to land
+   here: a harness that drops the agent file's `model:` (OMP ≤ 18.2.0 for marketplace-installed
+   plugins — can1357/oh-my-pi#12028), a disabled provider, or missing credentials land in the same
+   place. Nothing in a task result reveals it, which is why step 0 exists.
 
 | Role | Agent | Tier | Job |
 |------|-------|------|-----|
@@ -46,8 +49,9 @@ do not improvise: give them the one-line override (`modelRoles.pf-worker: <model
 
 **Rules that are NOT optional:**
 - The orchestrator (main session) must run on the strong tier. At step 1 you state your own model
-  and the resolved worker/verifier models (from the presets or config you can read). If your own
-  model is the worker model, you are not pilotfishing — say so and stop.
+  and the resolved worker/verifier models — verified by the step-0 preflight, not read off config.
+  If your own model is the worker model, you are not pilotfishing — say so and stop; if a probe
+  came back `collapsed`, stop and report instead of delegating.
 - Workers do ALL volume work. Workers never spawn sub-agents (leaf roles) and never run on the strong
   tier.
 - The verifier is a **strong-tier, fresh-context** gate — it exists because the model that did the
@@ -74,12 +78,45 @@ cost), or genuinely novel architecture where the strong model should just do the
 
 Run these steps in order. The packet script is deterministic context capture; you orchestrate.
 
+### 0. Tier preflight — one trivial probe per tier, before any real dispatch
+
+Model routing fails **silently**: OMP resolves `task.agentModelOverrides.<agent>` → the agent file's
+`model:` alias → the session model, and any link in that chain can drop without an error. It has:
+OMP ≤ 18.2.0 ignored the `model:` frontmatter of agents shipped by marketplace-installed plugins
+(upstream can1357/oh-my-pi#12028), so every `pf-*` leaf inherited the ORCHESTRATOR's model — the
+worker tier ran on strong-tier tokens and nothing in any task result said so. An undefined role, a
+disabled provider, missing credentials, and a hand-edited agent file all fail the same way.
+
+So prove the tiers before you delegate. ONE `task` call, two trivial leaves:
+
+- `TierProbeWorker` — `agent: "pf-scout"`, task = "Reply with exactly: worker probe ok"
+- `TierProbeStrong` — `agent: "pf-verifier"`, task = "Reply with exactly: strong probe ok"
+
+They must use the real role agents (that is the resolution path under test), and their names must
+stay unique in this run. Then check what actually ran — the transcript is the only place the
+resolved model is recorded:
+
+```
+node <skill-dir>/scripts/tiers.mjs --probe TierProbeWorker --probe TierProbeStrong --since 30
+```
+
+`ok` on both lines and exit 0 = the tiering is real; keep the output as the roster's source.
+Anything else — `collapsed`, `mismatch`, `unconfigured`, `unverified`, `no transcript` — is a STOP:
+report the verdict to the user with the fix and do not start volume work until it is green. Common
+causes, in order: OMP older than 18.2.1 (upgrade; `omp plugin list` shows what is installed), no
+`modelRoles.pf-worker` / `modelRoles.pf-strong`, or `pf-worker` pointed at your own model. Pinning
+the seats (`task.agentModelOverrides.pf-scout`, `.pf-executor`, `.pf-mech-executor`,
+`.pf-verifier` in `~/.omp/agent/config.yml`) works on every version, because the override path is
+not the one that breaks. Running collapsed is worse than not pilotfishing: it silently bills your
+strong model for volume work, which is the single thing this skill exists to prevent.
+
 ### 1. Frame + roster (orchestrator, strong)
 Write one to three sentences: what is being done, what "done" means, and the constraints. Then one
 roster line: `orchestrator=<your model> workers=<model> verifier=<model>`. Your own model you know;
-for the others cite where you read it (`~/.omp/agent/config.yml`, `<repo>/.omp/config.yml`, a
-preset the user named) or write `unverified` — do not report the agent files' defaults as fact,
-because an override you cannot see may be active. If the outcome or acceptance is unclear, ask a
+for the others cite the step-0 preflight — the model `tiers.mjs` observed each tier's probe running
+on. A model you only read out of config is `unverified` until a probe confirms it, because an
+override or overlay you cannot see may be active, and a configuration that never took effect is
+exactly what the preflight exists to catch. If the outcome or acceptance is unclear, ask a
 direction-changing question first (interaction shape `co_discover`); otherwise `explore_then_plan`
 for broad/high-impact work, `execute` for bounded work. Long runs: keep a ledger — one line per
 slice (`slice N: <what> → <worker> → <verdict>`) appended to a file next to your packets — so a
@@ -118,9 +155,10 @@ Brief hygiene (every dispatch, including scouts and the verifier):
 - **Every `tasks[]` entry sets `agent:` to the pf role** — `agent: "pf-scout"`, `"pf-executor"`,
   `"pf-mech-executor"`, or `"pf-verifier"`. An entry without `agent:` runs on the generic `task`
   agent on YOUR model, which silently defeats the tiering — and the harness will not tell you
-  (a single-spawn result only echoes the name). Re-read the call before you send it. If a
-  worker's report shows it ran on your model, that was your omission, not a harness fault: note
-  it, and respawn with `agent:` set if the work is still ahead.
+  (a single-spawn result only echoes the name). Re-read the call before you send it. If a worker's
+  report shows it ran on your model, decide which cause it is: no `agent:` is your omission (respawn
+  with it set); `agent:` set and still on your model means the harness dropped the role pin — the
+  step-0 preflight is what rules that out, so treat it as a stop-and-report, not a one-off to shrug at.
 - The shared brief goes in the `task` call's `context` field or in a real file at an **absolute
   filesystem path** (repo, worktree, or your packet directory). Never a `local://`, `agent://`, or
   other internal URI — workers cannot open those and will work from a truncated task string.
@@ -178,6 +216,18 @@ one fresh verifier when claim-relevant. Your final review is a judgment pass ove
 result and the verifier's evidence — this is where the strong model earns its keep. Finish by
 stating what changed, what you ignored and why, and the current verdict.
 
+Before that review, audit what the run actually used — the same script, over every leaf this run
+spawned (default window: the last 4 hours; scope it with `--since`):
+
+```
+node <skill-dir>/scripts/tiers.mjs --since 240
+```
+
+It lists each `pf-*` leaf with the model its transcript recorded. Every row must be `ok`; a leaf
+that ran off its tier is a failed leaf — name it in the final review, and do not fold its output in
+as if the tiering held. A worker result produced on your own model is not independent worker work,
+and the cost was yours, not the router's.
+
 ## Safety
 
 - Credentials/secrets/identity/crypto work: never route unwittingly to a worker pool that lacks a
@@ -206,3 +256,13 @@ stating what changed, what you ignored and why, and the current verdict.
   `<repo>/.omp/config.yml` permanently, plus the `--model` you launch OMP with. Register provider
   endpoints in `~/.omp/agent/models.yml` (keys by env-var name, values in `~/.omp/agent/.env`).
   `omp models` lists what each provider can serve.
+- `tiers.mjs`: the tier proof (step 0 gate + step 6 audit). `--probe <task-name>` (repeatable)
+  restricts the check to named spawns and FAILS when one produced no transcript; `--session-dir`
+  pins the session (default: the newest session dir for the current cwd within `--since <min>`);
+  `--expected <agent>=<selector>` states a tier OMP's persisted settings cannot show (a `--config`
+  overlay); `--orchestrator <sel>` overrides the parent model it reads from the parent transcript;
+  `--no-omp` skips settings; `--json` for machines. Verdicts: `ok`, `collapsed` (ran on the
+  orchestrator's model), `mismatch`, `unconfigured`, `unverified`; exit 1 unless every checked row
+  is `ok`. It reads `session_init.resolvedModel` / `model_change` from the subagent transcripts
+  under `~/.omp/agent/sessions/<cwd-slug>/<session-id>/` — the same ground truth quorum-review's
+  `collect.mjs` uses for seat provenance.
