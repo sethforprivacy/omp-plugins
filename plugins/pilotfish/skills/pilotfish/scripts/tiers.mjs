@@ -30,6 +30,9 @@
 //   --probe <task-name>     Restrict the check to this spawn's task name (the transcript basename,
 //                           e.g. TierProbeWorker); repeatable. A named probe with no transcript is
 //                           a failure — the gate must not pass by finding nothing.
+//   --agents-dir <d>        Where to read the agent files that map an agent name to its tier alias.
+//                           Default: ~/.omp/agent/agents, then every installed plugin's agents/,
+//                           then this plugin's own agents/ — so a bare checkout works.
 //   --expected <a>=<sel>    Expected model for agent <a>, highest precedence. Use it for a
 //                           `--config` overlay OMP's persisted settings cannot show, or in tests.
 //   --orchestrator <sel>    The orchestrator's own model selector. Default: read from the parent
@@ -45,7 +48,10 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
 
 function fail(msg, code = 1) {
   console.error(`tiers: ${msg}`);
@@ -56,7 +62,7 @@ function home() {
 }
 
 function parseArgs(argv) {
-  const args = { sessionDir: null, since: 240, probes: [], expected: {}, orchestrator: null, omp: true, json: false };
+  const args = { sessionDir: null, since: 240, probes: [], expected: {}, orchestrator: null, omp: true, json: false, agentsDirs: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => {
@@ -64,6 +70,7 @@ function parseArgs(argv) {
       return argv[++i];
     };
     if (a === "--session-dir") args.sessionDir = val();
+    else if (a === "--agents-dir") args.agentsDirs = [val()];
     else if (a === "--probe") args.probes.push(val());
     else if (a === "--orchestrator") args.orchestrator = val();
     else if (a === "--expected") {
@@ -130,7 +137,9 @@ function sessionDirs(root, sinceMs) {
 // Agent files, in OMP's own precedence order: the user dir shadows plugin agents of the same name.
 // Their `model:` is the tier alias (`@pf-worker` / `@pf-strong`), which this script expands through
 // modelRoles exactly as OMP does with a frontmatter pin it honors.
-function agentAliases() {
+// The plugin's own agents/ dir (three levels up from scripts/) is the last fallback so the check
+// still works where nothing is installed — a bare repo checkout, CI, or a fork run in place.
+function defaultAgentDirs() {
   const dirs = [join(home(), ".omp", "agent", "agents")];
   const cache = join(home(), ".omp", "plugins", "cache", "plugins");
   if (existsSync(cache)) {
@@ -139,6 +148,12 @@ function agentAliases() {
       try { if (statSync(d).isDirectory()) dirs.push(d); } catch { /* not a dir */ }
     }
   }
+  const bundled = resolve(scriptDir, "..", "..", "..", "agents");
+  if (existsSync(bundled)) dirs.push(bundled);
+  return dirs;
+}
+
+function agentAliases(dirs) {
   const aliases = new Map();
   for (const dir of dirs) {
     let files;
@@ -220,8 +235,9 @@ else {
   if (here.length === 0 && all.length > 0) console.error(`tiers: note — no session dir for ${process.cwd()} in the last ${args.since} min; scanning all ${all.length} recent session(s)`);
 }
 
-const aliases = agentAliases();
-if (aliases.size === 0) fail("no agent files with a `model: \"@role\"` pin found under ~/.omp/agent/agents or ~/.omp/plugins/cache/plugins/*/agents — is the plugin installed?");
+const agentDirs = (args.agentsDirs || defaultAgentDirs()).filter((d) => existsSync(d));
+const aliases = agentAliases(agentDirs);
+if (aliases.size === 0) fail(`no agent file with a \`model: "@role"\` pin found in ${agentDirs.join(", ") || "(no existing agents dir)"} — is the plugin installed? Pass --agents-dir <path> to point at the shipped agents/ dir.`);
 
 const overrides = args.omp ? ompSetting("task.agentModelOverrides") || {} : {};
 const roles = args.omp ? ompSetting("modelRoles") || {} : {};

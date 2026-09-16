@@ -260,9 +260,11 @@ and the cost was yours, not the router's.
   restricts the check to named spawns and FAILS when one produced no transcript; `--session-dir`
   pins the session (default: the newest session dir for the current cwd within `--since <min>`);
   `--expected <agent>=<selector>` states a tier OMP's persisted settings cannot show (a `--config`
-  overlay); `--orchestrator <sel>` overrides the parent model it reads from the parent transcript;
-  `--no-omp` skips settings; `--json` for machines. Verdicts: `ok`, `collapsed` (ran on the
-  orchestrator's model), `mismatch`, `unconfigured`, `unverified`; exit 1 unless every checked row
-  is `ok`. It reads `session_init.resolvedModel` / `model_change` from the subagent transcripts
-  under `~/.omp/agent/sessions/<cwd-slug>/<session-id>/` — the same ground truth quorum-review's
+  overlay); `--agents-dir <dir>` overrides where the agent files are read from (default: user dir →
+  installed plugins → this plugin's own `agents/`); `--orchestrator <sel>` overrides the parent
+  model it reads from the parent transcript; `--no-omp` skips settings; `--json` for machines.
+  Verdicts: `ok`, `collapsed` (ran on the orchestrator's model), `mismatch`, `unconfigured`,
+  `unverified`; exit 1 unless every checked row is `ok`. It reads `session_init.resolvedModel` /
+  `model_change` from the subagent transcripts under
+  `~/.omp/agent/sessions/<cwd-slug>/<session-id>/` — the same ground truth quorum-review's
   `collect.mjs` uses for seat provenance.
